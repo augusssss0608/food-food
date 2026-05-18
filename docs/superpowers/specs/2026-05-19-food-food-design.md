@@ -293,6 +293,9 @@ revoke all on all functions in schema app_private from anon, authenticated, publ
 
 -- ⚠️ PG 陷阱：CREATE FUNCTION 默认 grant execute to public
 -- 必须用 default privileges 拦住"未来新建的函数"自动暴露
+-- 注意：ALTER DEFAULT PRIVILEGES 只对"执行此 DDL 的角色后续创建的对象"生效
+-- Supabase migration 默认用 postgres 角色跑，所以这里隐式 FOR ROLE postgres，对单用户项目足够
+-- 如果 migration 由不同角色跑（如 CI 用 supabase migrations dev），需要补 FOR ROLE <role>
 alter default privileges in schema app_private revoke execute on functions from public;
 alter default privileges in schema app_private revoke execute on functions from authenticated, anon;
 
@@ -319,9 +322,20 @@ as $$ select owner_user_id from app_owner where id = true $$;
 
 -- 显式 grant（前置 alter default privileges 已 revoke from public）
 grant execute on function app_private.owner_user_id() to authenticated, service_role;
+
+-- app_owner 表本身仅 service_role 能直接访问（owner_user_id() security definer 函数能读）
+revoke all on app_private.app_owner from public, anon, authenticated;
+grant select, insert, update on app_private.app_owner to service_role;
 ```
 
 **`app_private.app_errors`**（错误日志，service_role only）
+
+```sql
+-- DDL（含显式 service_role grant）
+revoke all on app_private.app_errors from public, anon, authenticated;
+grant select, insert on app_private.app_errors to service_role;
+```
+
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -333,6 +347,13 @@ grant execute on function app_private.owner_user_id() to authenticated, service_
 | `stack` | text | <= 4000 字符 |
 
 **`app_private.ai_calls`**（每次 AI 调用 1 行）
+
+```sql
+-- DDL（含显式 service_role grant）
+revoke all on app_private.ai_calls from public, anon, authenticated;
+grant select, insert, update on app_private.ai_calls to service_role;
+```
+
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -368,6 +389,9 @@ create table app_private.cron_runs (
   result jsonb default '{}',
   primary key (job_name, run_key)
 );
+
+revoke all on app_private.cron_runs from public, anon, authenticated;
+grant select, insert, update on app_private.cron_runs to service_role;
 
 -- RPC（service definer，service_role only）
 create or replace function app_private.try_start_cron_run(
@@ -439,7 +463,7 @@ export const FITNESS_MEAL_PRESETS = {
 
 ```
 用户点 "今天怎么样" → POST /api/advice/daily { date }
-  → assertSameOrigin + requireAllowedUser({ fresh: true }) + assertAiBudget
+  → assertSameOrigin + requireAllowedUser({ fresh: true }) + reserveAiBudget(userId, 'daily_advice')
   → 组装 context: 
       - profile.targets (今日 workout/rest 选对应)
       - workout_days[today]
@@ -873,6 +897,7 @@ function stripAiRawJson<T extends { ai_raw_json?: any }>(rows: T[]): T[] {
 }
 
 // 唯一对外暴露的 context fetcher：所有 advice 生成流程都通过它
+// （§4.3 advice 生成"组装 context"步骤必须通过这个函数，禁止直查 meals.ai_raw_json）
 export async function fetchAdviceInputData(userId: string, periodStart: string, periodEnd: string) {
   const [{ data: meals }, { data: bodyMetrics }] = await Promise.all([
     supabaseAdmin.from('meals').select('*')
@@ -1241,6 +1266,7 @@ export async function settleAiBudget(userId: string, kind: AiCallKind, actualCen
 - "预约"乐观估算入账，调用完后按实际成本 settle 修正
 - failed 调用：`settleAiBudget(userId, kind, 0)` 把预约的 cents 全退回
 - 串行化由 `FOR UPDATE` 保证（PostgreSQL 行锁）
+- **`call_count` 故意不在 settle 时回退**：一次 reserve = 一次"调用尝试"占用配额；这样防 retry 风暴吃光预算（失败 retry 仍计配额，会逼用户停下排查）。如果想"每天 50 次成功调用"语义，可以把 cap 加大到 60-70 留容错
 
 **Daily cap 默认**（写入 `app_private.app_config`）：
 - 50 次/天
@@ -1360,6 +1386,10 @@ begin
     if new.ate_at is distinct from old.ate_at then
       perform mark_advice_period_stale(new.user_id, new.ate_at);
     end if;
+    -- 防御：user_id 变化（单用户场景不该发生，但 trigger 是常驻代码）
+    if new.user_id is distinct from old.user_id then
+      perform mark_advice_period_stale(new.user_id, new.ate_at);
+    end if;
   end if;
   return coalesce(new, old);
 end; $$;
@@ -1386,7 +1416,8 @@ await supabaseAdmin.from('inbox').upsert(
     type: `${kind}_advice_ready`,
     ref_id: `${kind}:${periodStart}`,
     title: kind === 'weekly' ? '本周建议已生成' : '本月建议已生成',
-    data: { adviceId, kind, periodStart },
+    // data.type 与 inbox.type 同名（§3.4 InboxData 类型契约），不是 advice.kind
+    data: { type: `${kind}_advice_ready`, adviceId, periodStart },
   },
   { onConflict: 'user_id,type,ref_id' },
 );
