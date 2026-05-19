@@ -925,15 +925,77 @@ export async function fetchAdviceInputData(userId: string, periodStart: string, 
 | `generateWeeklyAdvice` | Sonnet 4.6 |
 | `generateMonthlyAdvice` | **Opus 4.7**（长上下文 + 深度趋势分析） |
 
-### 5.7 Phase 2 POC 设计
+### 5.7 AI Provider 策略（修订版：H → E-lite 渐进 + Sandbox 主路径 + API key fallback）
 
-POC endpoint：`/api/dev/agent-sdk-probe` (env-gated)，最小 `query("return JSON {ok:true}")`，分别测：
-1. 能不能跑（native Claude Code binary 在 Vercel Node serverless 兼容性）
-2. 计不计 Max credit（看 Console usage breakdown）
-3. token 怎么管理（刷新 / 失效）
-4. 冷启动 + 1h 间隔 + 24h 间隔下成功率
+**经 Codex 多轮事实核对（2026-05），原 "AI_PROVIDER 单一切换" 假设不成立**：
+- Claude Agent SDK bundles native Claude Code binary + 要求 sandbox/container（1GiB RAM / 5GiB disk / 1 CPU）
+- 普通 Vercel Node Function 跑不了；要用 **Vercel Sandbox**（基于 Fluid Compute，Hobby 含 5 CPU hours/月 + 5000 sandbox creations/月）
+- 6/15 前 Anthropic **明确禁止**第三方应用使用 Max OAuth token（2026-02-20 改 ToS，2026-04-04 起服务端封禁）
+- 6/15 后政策反转，Pro/Max 享独立 Agent SDK credit 池（Max 20x = $200/月）
 
-POC 4 项都过 → 切 `AI_PROVIDER=agent-sdk`；任一不过 → 删 POC，继续 Phase 1。
+**修订后路径：**
+
+#### Phase 1（今日 → 6/15+ 验证期）
+- **AI_PRIMARY_PROVIDER=anthropic_api**
+- Anthropic Messages API + Sonnet 4.6 vision
+- 月成本约 $2，预算可控
+- 抽象层保留，但**不实现 Sandbox provider**
+
+#### Phase 2 POC（6/15 当天起，预计 2-4 周）
+
+POC endpoint：`/api/dev/sandbox-probe` (env-gated)，验证：
+
+| 项 | 通过标准 |
+|---|---|
+| Vercel Sandbox snapshot 启动稳定 | 5 次冷启动 + 5 次 1h 间隔 + 2 次 24h 间隔，零启动失败 |
+| 拍餐 P95 端到端延迟 | < 30 秒（target），< 45 秒（max） |
+| Token 认证稳定 | 连续 2-4 周无 401 / token revocation |
+| API key fallback 链路 | 单测 + 强制触发场景下能切回 |
+
+POC 路径架构：
+```
+PWA → Vercel API route → Sandbox.create({ source: snapshot }) → Agent SDK query → JSON result → API route → PWA
+```
+
+**Snapshot 必须预装依赖**（不允许 per-request `npm install`，否则冷启动 5-10 分钟不可接受）。
+
+#### Phase 3（POC 通过后）
+- **AI_PRIMARY_PROVIDER=claude_agent_sdk**
+- **AI_FALLBACK_PROVIDER=anthropic_api**
+- 主路径走 Sandbox + Max credit（$200/月池），月成本 **$0**
+- fallback 触发条件（任一）：auth 失败 / timeout / sandbox 创建失败 / 无效 JSON / 5xx
+- 触发时：自动切 API key + 写 inbox `provider_fallback` + Sentry 告警
+- fallback 月预算硬上限 **$5**，超过时停 cron 类非交互调用、保留用户主动触发的拍餐 / 日建议
+
+### 5.7.1 环境变量
+
+```bash
+# Phase 1
+AI_PRIMARY_PROVIDER=anthropic_api
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Phase 3（POC 通过后追加）
+AI_PRIMARY_PROVIDER=claude_agent_sdk
+AI_FALLBACK_PROVIDER=anthropic_api
+CLAUDE_AGENT_SNAPSHOT_ID=snap_xxx          # Vercel Sandbox snapshot ID
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...   # 本地 `claude setup-token` 生成的 1 年 token
+```
+
+### 5.7.2 Provider 必须遵守
+
+- **硬超时**：交互式拍餐 30s target / 45s max；cron advice jobs 120s max
+- **结构化 JSON 校验**：返回业务层前必须过 Zod schema
+- `sandbox.stop()` 在 `finally` 中清理
+- **切换 provider 不改业务层**：抽象在 `lib/ai-provider/`
+- **fallback 是单层 try-catch**，不是通用 multi-provider framework
+
+### 5.7.3 Token 续期流程
+
+OAuth token 失效 / 撤销时：
+- 软件自动 fallback API key（不停机）+ 写 inbox `oauth_token_expired`
+- 用户在任意能跑 Claude CLI 的机器（**Mac / 临时 Linux VM**）跑 `claude setup-token`
+- 复制新 token 推到 Vercel env var → 触发部署
+- **Mac 不是运行时依赖**，只是低频维护工具（约 1 年一次）
 
 ---
 
@@ -1705,30 +1767,58 @@ jobs:
 
 ### Phase 1（今天 2026-05-19 ~ 2026-06-14，约 1 个月）
 
-- 用 Anthropic API key（新账号 $5 起步 credit）
-- `AI_PROVIDER=api-key`
-- 按 token 计费，Sonnet 4.6 为主，估月成本 ~$2
-- 重点开发 + 试运行核心功能
+- `AI_PRIMARY_PROVIDER=anthropic_api`
+- Anthropic Messages API + Sonnet 4.6（vision）+ Opus 4.7（月建议）
+- 按 token 计费，估月成本约 **$2**（新账号 $5 起步 credit 起手够用很久）
+- 重点：完成核心功能闭环 + iOS PWA 实机测试 + spec §8.11 必测项目通过
 
-### 6/15 之前 ~ 6/15
+### 6/15 当天 ~ 验证期（约 2-4 周）
 
-- 上线 §8.11 必测项目通过 → 进入生产
-- 准备 Phase 2 POC
+- Anthropic Agent SDK + Max credit 政策反转生效
+- 开发 Vercel Sandbox + Agent SDK provider（约 1-2 天工作量）
+- POC endpoint `/api/dev/sandbox-probe` 上线
+- 跑 §5.7 Phase 2 POC 验证矩阵（snapshot 启动 / P95 延迟 / token 稳定性 / fallback 链路）
 
-### Phase 2（2026-06-15+，POC 通过后）
+### Phase 3（POC 全过后切换）
 
-1. 本地 `claude setup-token` 拿 OAuth token
-2. POC endpoint 验证 4 项（能跑 / 计 credit / token 管理 / 冷启动）
-3. 通过 → 切 `AI_PROVIDER=agent-sdk` + `CLAUDE_OAUTH_TOKEN=...`
-4. 不通过 → 继续 API key（每月 ¥14 接受）
+切换动作：
+1. 本地任意能跑 Claude CLI 的机器跑 `claude setup-token` 拿 1 年 OAuth token
+2. 创建 Vercel Sandbox snapshot（预装 `@anthropic-ai/claude-agent-sdk` + `claude` CLI）
+3. 部署：
+   ```
+   AI_PRIMARY_PROVIDER=claude_agent_sdk
+   AI_FALLBACK_PROVIDER=anthropic_api
+   CLAUDE_AGENT_SNAPSHOT_ID=snap_xxx
+   CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+   ANTHROPIC_API_KEY=sk-ant-...           # 保留作 fallback
+   ```
+4. 业务代码**完全不动**（AI Provider 抽象层隔离）
 
-**两边业务代码完全相同**（AI Provider 抽象层隔离）。
+**预期结果**：主路径走 Max credit（每月 ~40 次调用 << $200 池子），月 AI 成本 $0；偶发 fallback 几毛-几美元，硬上限 $5/月。
 
-### Token 刷新机制（待 POC 后确定）
+### POC 不通过的应急
 
-- 不做"GitHub Actions 周刷 token 推 Vercel env var"（脆弱）
-- 等 Anthropic 6/15 后官方文档明确 token 生命周期再设计
-- 失败兜底：回退 API key
+任一 POC 项目不达标 → 继续 Phase 1（API key），spec 删 Phase 3 配置。月 $2 可接受。
+
+### Token 续期机制
+
+- OAuth token 1 年有效期，**到期前 ~2 周提前续**
+- GitHub Actions 月度 cron 检查 `app_private.app_errors` 中 oauth_token_expired 事件 + 提醒维护者
+- 续期：本地 Mac / 临时 Linux VM 跑 `claude setup-token` → 复制新 token 到 Vercel env → 触发 deploy
+- **续期期间软件自动走 API key fallback 不停机**
+
+### 关键事实记录（Codex 多轮事实核对结果）
+
+| 事实 | 影响设计 |
+|---|---|
+| 2026-02-20 Anthropic 改 ToS：禁第三方 OAuth | Phase 1 必须 API key，不能用 OAuth |
+| 2026-04-04 服务端封禁生效 | 6/15 前用 OAuth 软件随时挂 |
+| 2026-06-15 政策反转：Pro/Max 享 Agent SDK credit 池 | Phase 2 切换合规依据 |
+| `claude setup-token` 给 1 年 OAuth token | 续期约 1 年 1 次 |
+| Vercel Sandbox Hobby Plan 含 5 CPU hours/月 + 5000 sandbox creations/月 | 远超 food-food ~40 次/月需求 |
+| Vercel Sandbox snapshot 跳过 npm install | 冷启动从 5-10 分钟降到几秒-十几秒 |
+| Codex 估 OAuth token 撤销概率（单用户自用） | 1-2%/年（远低于第三方批量平台 10-20%）|
+| GPT-4o vs Claude 3.5 Sonnet vision 营养估算（学术论文）| 准度基本一致（36.3% vs 37.3% MAPE）—— 选 Claude 是为政策稳定性 + 中餐识别社区共识更强 + spec 已按 Claude 调优 |
 
 ---
 
@@ -1744,18 +1834,20 @@ jobs:
 | 6 | DB trigger 标 stale（不是应用层） | 应用层 / 不标只显示警告 | 覆盖所有路径（API / 管理端 / 脚本） |
 | 7 | IndexedDB 本地草稿（不是离线直接报错） | 直接报错 / Background Sync | 地铁场景体验；iOS Background Sync 不可靠 |
 | 8 | 5 项硬数据 + AI 定性扫菜名（不追求 82+ 指标） | MyFitnessPal 14 / MacroFactor 54 / Cronometer 82 | 越多越难给可执行建议；adherence > accuracy |
-| 9 | Phase 2 切 Agent SDK + 订阅 credit | 永久 API key | 利用已付 Max；Phase 1 留路抽象层 |
+| 9 | Phase 1 用 API key；6/15 后 POC 验证通过切 Vercel Sandbox + Agent SDK + Max credit + API key fallback | 永久 API key / 立刻 Sandbox / 切 OpenAI | 6/15 前 Anthropic 封禁 OAuth；6/15 后政策反转；Sandbox 跑 native binary 是官方背书路径；fallback 兜住 token 撤销风险；OpenAI 阵营准度无差但工程量 3.5-5 天且未来可能跟进收紧 |
 | 10 | restrictive owner RLS policy | 仅 self policy / 仅 email 白名单 | 防匿名 sign-in / NextJS middleware CVE 绕过 |
 
 ---
 
 ## 11. 未决项
 
-1. **Phase 2 POC 结果** —— 2026-06-15 后才能验证。POC 阶段标准（量化但**降低样本量**避免时间线冲突）：
-   - 5 次冷启动 + 5 次 1h 间隔 + 2 次 24h 间隔（跨 2 天即可）
-   - 全部通过 → 进入小流量灰度（每日真实建议 1-2 次跑 1 周）
-   - 灰度期成功率 ≥ 95% → 切 production
-   - token 管理判定为"Anthropic 官方文档明确 OAuth token 长期有效，或提供程序刷新接口且不需要 dashboard 交互"
+1. **Phase 2 POC 结果** —— 2026-06-15 后才能验证（详见 §5.7 + §9）。POC 阶段标准：
+   - Vercel Sandbox snapshot 启动：5 次冷启动 + 5 次 1h 间隔 + 2 次 24h 间隔零失败
+   - 拍餐 P95 延迟 < 30 秒（target），< 45 秒（max）
+   - Token 认证连续 2-4 周无 401 / revocation
+   - API key fallback 链路单测通过 + 强制触发场景测试通过
+   - 全部通过 → 灰度 1 周（每日真实建议 1-2 次）→ 切 production
+   - 任一不过 → 永久走 Phase 1（API key + Sonnet 4.6，月 $2）
 2. **iOS PWA Web Push 实测可靠率** —— 上线后才能观察；不可靠时考虑加 in-app polling 增强 inbox 触发
 3. **AI 月度成本实际值** —— Phase 1 跑一个月后核对估算 $2 是否准确
 4. **健身餐菜单变更频率** —— 看用户实际使用，决定 `lib/fitness-meals.ts` 维护节奏
