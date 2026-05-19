@@ -49,7 +49,7 @@
 | 12 | 体重 / 体脂 | 截图 Omron Connect AI 提取 + 手填，超 3 天未录推送提醒 |
 | 13 | 认证 | Supabase Auth + Row-Level Security（self + restrictive owner 双层） |
 | 14 | 后端 | **Vercel Node + Supabase**（24/7 云端） |
-| 15 | AI 提供者 | Phase 1 (~6/15) API key 按 token；Phase 2 (6/15+) Agent SDK + Max 订阅 credit（POC 不过回退 Phase 1） |
+| 15 | AI 提供者 | **H → E-lite 渐进**：Phase 1 (今 ~ 6/15) 单 Provider = `anthropic_api`；Phase 2 (6/15+) POC 验 Vercel Sandbox + Agent SDK；Phase 3 (POC 过) 主 `claude_agent_sdk` + fallback `anthropic_api`，切换靠**代码常量**改值（`lib/ai-provider/config.ts`），不靠 env；fallback 月成本近似硬上限 ≈ $5（reserve gate） |
 | 16 | 推送 | Web Push 主 + Inbox 表 + App 内红点后备（双轨） |
 | 17 | 时区 | 用户 `preferred_timezone`（默认 Asia/Tokyo），周/月边界按此算 |
 
@@ -63,19 +63,23 @@ iPhone Safari → PWA (Add to Home Screen + Web Push)
 Vercel:
   - Next.js 14+ App Router (前端 + API routes)
   - Vercel Cron (UTC 13:00 每日 catch-up，业务自己判 due)
+  - Vercel Sandbox (Phase 3 主路径，跑 Agent SDK + claude CLI)
   - Web Push 服务 (VAPID)
        ↓ Supabase Auth / sb_secret
 Supabase:
   - Postgres: meals / workout_days / body_metrics / advice / inbox / 
               push_subscriptions / notification_deliveries / profiles /
-              cron_runs / app_private.ai_calls / app_private.app_owner /
+              cron_runs / app_private.ai_calls / app_private.ai_budget_daily /
+              app_private.app_config / app_private.app_owner /
               app_private.app_errors
   - Auth: 邮箱+密码 + RLS (self + restrictive owner uid 硬绑)
   - Storage: 默认不存照片，仅在需保留原图证据时启用
        ↓ outbound
-Anthropic API / Agent SDK
-  - Phase 1: Messages API + Vision (API key)
-  - Phase 2: Agent SDK + OAuth token (Max credit)
+AI Provider 抽象层 (主/Fallback 双 provider，代码常量切换；详见 §5.7)
+  - Phase 1: anthropic_api 单 provider (Messages API + Vision, API key)
+  - Phase 3: 主 claude_agent_sdk via Vercel Sandbox (Max credit)
+             + fallback anthropic_api (API key)
+             fallback 完整触发条件 / cap / trigger 字段语义见 §5.7
 ```
 
 ### 设计原则
@@ -98,6 +102,21 @@ Anthropic API / Agent SDK
 ---
 
 ## 3. 数据模型
+
+**Schema 定位**：本节所有 DDL 是 **v1 baseline schema**（一次性建表，不描述线上迁移）。项目尚未部署生产数据；实现时按本节 DDL 一次性创建即可，不需要 `alter table add column` 类增量 migration。
+
+**Migration order**（v1 一次性 apply 必须按此顺序，否则 RLS / RPC / trigger 会找不到依赖）：
+
+1. **Extensions**：`create extension if not exists pgcrypto;`（`gen_random_uuid()` 依赖；Supabase 通常已预装但显式声明更稳）
+2. **Public tables**：`profiles` / `meals` / `workout_days` / `body_metrics` / `advice` / `inbox` / `push_subscriptions` / `notification_deliveries`（按 §3.1-§3.4 字段表写 CREATE TABLE；FK 指向 `auth.users(id)`；timestamps 默认 `now()`）
+3. **app_private schema 权限准入**：`create schema if not exists app_private` + revoke all + `alter default privileges`（详见 §3.5 顶部"Schema 权限准入"）
+4. **app_private 配置/owner 表**：`app_owner` + `app_config` + `owner_user_id()` 函数（其他 RPC / RLS 依赖此函数）
+5. **app_private 业务表**：`app_errors` / `ai_calls` / `ai_budget_daily` / `ai_budget_monthly_fallback` / `cron_runs`
+6. **app_private RPCs**：`try_reserve_ai_budget` / `settle_ai_budget` / `try_reserve_fallback_monthly_cap` / `settle_fallback_monthly_cap` / `try_start_cron_run` / `finish_cron_run`
+7. **Indexes**：所有 public + app_private 表的索引（含 `(user_id, client_mutation_id)` 普通 unique；其他普通 b-tree 索引）
+8. **Triggers**：`mark_advice_stale_for_meal()` + trigger 挂在 `meals`（§7.7）
+9. **RLS policies**：public 表的 self + restrictive owner 双层（§6.5）
+10. **Seed**：写入 `app_owner.owner_user_id` = `ALLOWED_USER_ID`；`app_config` 写入 daily cap / monthly fallback cap 默认值
 
 ### 3.1 类别 1 · 用户与目标
 
@@ -142,7 +161,7 @@ Anthropic API / Agent SDK
 | `satiety` | smallint | 1-5 星，nullable |
 | `ai_raw_json` | jsonb | 拍照时存 AI 原始响应 |
 | `notes` | text | 用户备注 |
-| `client_mutation_id` | uuid | 客户端幂等键，nullable |
+| `client_mutation_id` | uuid | 客户端幂等键，**NOT NULL**（无 DB default；API 层强制要求 header `Idempotency-Key`，缺失返 400） |
 | `created_at` | timestamptz | 默认 now() |
 
 **索引 / 约束（完整 DDL）**：
@@ -150,10 +169,10 @@ Anthropic API / Agent SDK
 ```sql
 create index meals_user_ate_at_idx on public.meals(user_id, ate_at desc);
 
--- partial unique index，仅在 client_mutation_id 非 null 时唯一
+-- 普通 unique 而不是 partial：所有行都必须有 client_mutation_id（NOT NULL，不设 DB default），
+-- API 层强制要求 header Idempotency-Key，缺失返 400。这样 ON CONFLICT 写法不需要带 WHERE predicate。
 create unique index meals_user_client_mutation_id_uidx
-  on public.meals(user_id, client_mutation_id)
-  where client_mutation_id is not null;
+  on public.meals(user_id, client_mutation_id);
 ```
 
 **`workout_days`**（稀疏表）
@@ -179,6 +198,18 @@ create unique index meals_user_client_mutation_id_uidx
 | `bmi` | numeric | 可选 |
 | `source` | text | `screenshot` / `manual` |
 | `ai_raw_json` | jsonb | 截图时存 AI 原始响应 |
+| `client_mutation_id` | uuid | 客户端幂等键（与 meals 同），**NOT NULL**（API 层强制 Idempotency-Key） |
+| `created_at` | timestamptz | 默认 `now()` |
+
+**索引 / 约束**：
+
+```sql
+create index body_metrics_user_measured_at_idx on public.body_metrics(user_id, measured_at desc);
+
+-- 普通 unique（同 meals 套路；client_mutation_id NOT NULL，API 强制 Idempotency-Key）
+create unique index body_metrics_user_client_mutation_id_uidx
+  on public.body_metrics(user_id, client_mutation_id);
+```
 
 ### 3.3 类别 3 · AI 输出
 
@@ -188,6 +219,7 @@ create unique index meals_user_client_mutation_id_uidx
 |---|---|---|
 | `id` | uuid | PK |
 | `user_id` | uuid | FK |
+| `correlation_id` | uuid | 关联生成此 advice 的逻辑调用（R2 §5.5.1 引入；与 `ai_calls.correlation_id` 对齐） |
 | `kind` | text | `daily` / `weekly` / `monthly` |
 | `period_start` | date | 周/月起点（按 preferred_timezone） |
 | `period_end` | date | |
@@ -205,6 +237,15 @@ create unique index meals_user_client_mutation_id_uidx
 | `flagged_reason` | text | 触发的危险词类别 |
 
 **唯一约束**：`(user_id, kind, period_start)`
+
+**period 口径**（按 kind 区分）：
+- `weekly`：`period_start` = 周一本地日（profiles.preferred_timezone），`period_end` = 周日；同周再触发 = upsert 覆盖
+- `monthly`：`period_start` = 月初 1 号，`period_end` = 月末；同月再触发 = upsert 覆盖
+- `daily`：`period_start = period_end = generated_at::date` 按 `profiles.preferred_timezone` 算的本地日；同一天再点 "今天怎么样" = **upsert 覆盖**（用户看到的永远是最新一次的 daily advice，旧的 overwrite）
+- `period_timezone` 始终存生成时的 timezone 字符串
+
+**索引**：
+- `create index advice_correlation_idx on public.advice(correlation_id) where correlation_id is not null;` —— `/admin/debug` 按 correlation 反查 advice 用
 
 ### 3.4 类别 4 · 通道
 
@@ -260,6 +301,8 @@ create unique index meals_user_client_mutation_id_uidx
 ```ts
 // lib/types/inbox.ts
 // 注意：data.kind 用 InboxType（与 inbox.type 同义），不是 advice.kind ('weekly'|'monthly')
+// inbox 仅 3 个**用户面向**类型：周建议好了 / 月建议好了 / 体重几天没记。
+// **不增加任何代码层 / 维护型 inbox 类型**（provider_fallback / oauth_token_expired / maintainer_alert 等都不写 inbox，只写 app_errors 由 /admin/debug 巡检；用户决策见 R4）
 export type InboxType = 'weekly_advice_ready' | 'monthly_advice_ready' | 'body_metrics_overdue';
 
 export type InboxData =
@@ -331,9 +374,48 @@ grant select, insert, update on app_private.app_owner to service_role;
 **`app_private.app_errors`**（错误日志，service_role only）
 
 ```sql
--- DDL（含显式 service_role grant）
+create table app_private.app_errors (
+  id uuid primary key default gen_random_uuid(),
+  occurred_at timestamptz not null default now(),
+  kind text not null,
+  context jsonb not null default '{}',
+  message text,
+  stack text
+);
+create index app_errors_kind_occurred_at_idx on app_private.app_errors(kind, occurred_at desc);
+
 revoke all on app_private.app_errors from public, anon, authenticated;
 grant select, insert on app_private.app_errors to service_role;
+```
+
+**`AppErrorKind` TS union**（写入由 `writeAppError` helper 统一；`/admin/debug` 面板按 kind 聚合）：
+
+```ts
+// lib/errors/app-errors.ts
+export type AppErrorKind =
+  | 'ai_call'                // AI 调用最终失败（transport/schema_invalid/unknown/429 attempts 耗尽）— provider finishAiCall failed 同时写
+  | 'push_send'              // Web Push 401/403/5xx（非订阅失效）— push handler 写
+  | 'cron'                   // try_start_cron_run / assembleContext / upsert advice 等 cron 内部抛错 — cron handler catch 后写
+  | 'auth'                   // middleware / requireAllowedUser / cron secret 校验内部异常 — auth helper catch 后写
+  | 'provider_fallback'      // fallback 路径触发 — withFallback 切 fallback 前写
+  | 'oauth_token_expired'    // Sandbox OAuth 失效（替代 provider_fallback）— withFallback 在 primaryErr.category='auth_oauth' 时写
+  | 'fallback_cap_cron_skip';// 月度 cap 跳过 cron 路径 — withFallback cap 拒绝时写
+
+// 统一写入 helper
+export async function writeAppError(input: {
+  kind: AppErrorKind;
+  correlationId?: string;           // 合并进 context.correlation_id（不加 DB 列）
+  context?: Record<string, unknown>;
+  message?: string;
+  stack?: string;
+}): Promise<void> {
+  await supabaseAdmin.schema('app_private').from('app_errors').insert({
+    kind: input.kind,
+    context: { ...(input.context ?? {}), correlation_id: input.correlationId },
+    message: input.message?.slice(0, 1000),
+    stack: input.stack?.slice(0, 4000),
+  });
+}
 ```
 
 
@@ -341,40 +423,70 @@ grant select, insert on app_private.app_errors to service_role;
 |---|---|---|
 | `id` | uuid | PK |
 | `occurred_at` | timestamptz | |
-| `kind` | text | 'ai_call' / 'push_send' / 'cron' / 'auth' |
+| `kind` | text | `AppErrorKind` 枚举值（不加 DB CHECK 留扩展余地，TS 层 union 约束；写入由 `writeAppError` helper 统一）。每个 kind 的生产规则见下方 `AppErrorKind` 定义 |
 | `context` | jsonb | 已脱敏 |
 | `message` | text | <= 1000 字符 |
 | `stack` | text | <= 4000 字符 |
 
-**`app_private.ai_calls`**（每次 AI 调用 1 行）
+**`app_private.ai_calls`**（每次 **provider 尝试** 1 行；primary + fallback 各一行；R2 §5.5.1 修订）
 
 ```sql
 -- DDL（含显式 service_role grant）
+create table app_private.ai_calls (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  correlation_id uuid not null,     -- 一次"逻辑调用"的稳定 id（业务层 randomUUID 一次）；primary + fallback 共用
+  kind text not null check (kind in ('meal_photo','body_ocr','initial_targets','daily_advice','weekly_advice','monthly_advice')),
+  trigger text not null check (trigger in ('user','cron','admin')),
+  provider text not null check (provider in ('anthropic_api','claude_agent_sdk','mock')),
+  model text,
+  prompt_version text,              -- 关联 advice.prompt_version
+  status text not null check (status in ('started','succeeded','failed')),
+  attempt int,                       -- 单 provider 内部 transport attempts 次数（含首次）
+  input_tokens int,
+  output_tokens int,
+  cache_creation_input_tokens int,
+  cache_read_input_tokens int,
+  estimated_cost_usd numeric(12,6),
+  latency_ms int,
+  error_code text,
+  error_message text,
+  started_at timestamptz not null default now(),
+  finished_at timestamptz,
+  request_ref text
+);
+-- (correlation_id, provider) 唯一：同一逻辑调用、同一 provider 只能存一行
+create unique index ai_calls_correlation_provider_uidx
+  on app_private.ai_calls (correlation_id, provider);
+create index ai_calls_user_started_at_idx on app_private.ai_calls (user_id, started_at desc);
+-- ai_calls_correlation_idx 是 UNIQUE(correlation_id, provider) 复合索引前缀的冗余，但单用户量级影响小，留作显式可读性；可在精简 schema 时删除
+create index ai_calls_correlation_idx on app_private.ai_calls (correlation_id);
+-- /admin/debug 月度成本报表支撑（Phase 3：anthropic_api 等价于"走 fallback 的调用"；Phase 1 它就是主路径——含义在两个 Phase 不同，使用时按当前 config 判定）
+create index ai_calls_month_cost_idx
+  on app_private.ai_calls (user_id, started_at)
+  where provider = 'anthropic_api' and status = 'succeeded';
+
 revoke all on app_private.ai_calls from public, anon, authenticated;
 grant select, insert, update on app_private.ai_calls to service_role;
 ```
 
+**字段说明**：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `id` | uuid | |
+| `id` | uuid | 行 PK |
 | `user_id` | uuid | |
-| `kind` | text CHECK | 'meal_photo' / 'body_ocr' / 'daily_advice' / 'weekly_advice' / 'monthly_advice' |
-| `provider` | text | 'anthropic' |
-| `model` | text | |
+| `correlation_id` | uuid | R2 关键约定：同一逻辑调用所有 provider 尝试共用 |
+| `kind` | text CHECK | 6 类，与 §5.5.1 `AiCallKind` 对齐 |
+| `trigger` | text CHECK | `user` / `cron` / `admin`（R2 引入；fallback cap 判定靠它） |
+| `provider` | text CHECK | `anthropic_api` / `claude_agent_sdk` / `mock`（与 §5.3 `ProviderName` 对齐；R1 codex 重要#3 修） |
+| `model` | text | `claude-sonnet-4-6` / `claude-opus-4-7` 等 |
 | `prompt_version` | text | 关联 `advice.prompt_version` |
-| `status` | text CHECK | 'started' / 'succeeded' / 'failed' |
-| `attempt` | int | |
-| `input_tokens` | int | |
-| `output_tokens` | int | |
-| `cache_creation_input_tokens` | int | |
-| `cache_read_input_tokens` | int | |
-| `estimated_cost_usd` | numeric(12,6) | |
-| `latency_ms` | int | |
-| `error_code` | text | |
-| `error_message` | text | |
-| `started_at` / `finished_at` | timestamptz | |
-| `request_ref` | text | |
+| `status` | text CHECK | `started` / `succeeded` / `failed`。**约定**：正常路径 `startAiCall` insert 一行 `started`，`finishAiCall` update 同一行到终态；DB 也允许直接 insert 终态行，但实现统一用 insert-then-update 范式（§5.5.1） |
+| `attempt` | int | 单 provider 内 transport attempts（含首次）。**约定**：成功时由 `callWithRetry` 返回 `attempts` 写入；失败时 `AIError.cause.attempts` 或 `e.attempts` 写入；callWithRetry 抛错前必须把 attempts 挂在 error 上（§5.4 实现要求） |
+| `estimated_cost_usd` | numeric(12,6) | settle 后的实际成本（succeeded）或 0（failed） |
+| `latency_ms` | int | 该 provider 内部测量耗时 |
+| ... | | 其余字段同前 |
 
 **`app_private.cron_runs`**（cron 锁表，**移到 app_private 防被 authenticated user 读改**）
 
@@ -405,12 +517,53 @@ begin
     locked_until = excluded.locked_until,
     started_at = now(),
     status = 'running'
-  where cron_runs.locked_until < now() or cron_runs.status = 'failed';
+  -- 故意允许重启 finished：因为 stale repair / inbox gap 等场景需要"已结束 period 重跑"。
+  -- "是否该重跑"由 findDueAdviceJobs 决定（看 artifact gap + stale），try_start_cron_run 只负责互斥。
+  -- 条件：lock 已过期 OR 上次失败 OR 上次已 finished（允许 repair 再启）
+  where cron_runs.locked_until < now() or cron_runs.status in ('failed', 'finished');
   return found;
+end; $$;
+
+-- 调用方契约：传 (job_name, run_key)
+-- - advice catchup 路径：job_name = 'advice_catchup'，run_key = '${adviceKind}:${periodStart}'（如 'weekly:2026-05-18'）
+-- - body reminder 路径：job_name = 'body_reminder_catchup'，run_key = `body_reminder:${localTodayDate}`
+
+-- 调用完成后 finish（无论成功 / 失败 / repair 完成都调）
+create or replace function app_private.finish_cron_run(
+  p_job_name text,
+  p_run_key text,
+  p_status text,          -- 'finished' | 'failed'
+  p_result jsonb default '{}'
+) returns void language plpgsql security definer
+set search_path = app_private as $$
+begin
+  update app_private.cron_runs
+    set finished_at = now(),
+        status = p_status,
+        result = coalesce(p_result, '{}'::jsonb)
+    where job_name = p_job_name and run_key = p_run_key;
 end; $$;
 
 -- 显式 grant 仅 service_role；authenticated/anon 由 default privileges 已自动 revoke
 grant execute on function app_private.try_start_cron_run(text, text, int) to service_role;
+grant execute on function app_private.finish_cron_run(text, text, text, jsonb) to service_role;
+```
+
+```ts
+// lib/cron/lock.ts —— helper 封装（业务层用）
+export async function tryStartCronRun(jobName: string, runKey: string, lockSeconds = 900): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .schema('app_private')
+    .rpc('try_start_cron_run', { p_job_name: jobName, p_run_key: runKey, p_lock_seconds: lockSeconds });
+  if (error) throw error;
+  return data === true;
+}
+
+export async function finishCronRun(jobName: string, runKey: string, status: 'finished' | 'failed', result: Record<string, unknown> = {}): Promise<void> {
+  await supabaseAdmin
+    .schema('app_private')
+    .rpc('finish_cron_run', { p_job_name: jobName, p_run_key: runKey, p_status: status, p_result: result });
+}
 ```
 
 ### 3.6 静态数据（不进 DB）
@@ -426,6 +579,157 @@ export const FITNESS_MEAL_PRESETS = {
 ```
 
 `meals.preset_key` 引用其中的 key。
+
+### 3.7 Public 表完整 baseline DDL（v1 一次性建表）
+
+按 §3 顶部 migration order 第 2 步执行。所有字段约束（not null / default / FK / CHECK）与 §3.1-§3.4 字段表对齐；索引和 RLS 在后续步骤建。
+
+```sql
+-- profiles
+create table public.profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  height_cm numeric,
+  current_weight_kg numeric,
+  birth_date date,
+  sex text check (sex in ('male','female')),
+  training_days_per_week smallint,
+  kcal_workout_day int,
+  kcal_rest_day int,
+  protein_g int,
+  carb_workout_day int,
+  carb_rest_day int,
+  fat_g int,
+  fiber_g int,
+  targets_source text check (targets_source in ('ai_initial','user_override','ai_adjusted')),
+  targets_updated_at timestamptz,
+  preferred_timezone text not null default 'Asia/Tokyo',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- meals
+create table public.meals (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  ate_at timestamptz not null,
+  source text not null check (source in ('preset','photo_ai','manual')),
+  preset_key text,
+  dish_name text,
+  kcal numeric,
+  protein_g numeric,
+  carb_g numeric,
+  fat_g numeric,
+  fiber_g numeric,
+  satiety smallint check (satiety between 1 and 5),
+  ai_raw_json jsonb,
+  notes text,
+  client_mutation_id uuid not null,
+  created_at timestamptz not null default now()
+);
+create index meals_user_ate_at_idx on public.meals(user_id, ate_at desc);
+create unique index meals_user_client_mutation_id_uidx
+  on public.meals(user_id, client_mutation_id);
+
+-- workout_days
+create table public.workout_days (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date date not null,
+  is_workout boolean not null,
+  marked_at timestamptz not null default now(),
+  primary key (user_id, date)
+);
+
+-- body_metrics
+create table public.body_metrics (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  measured_at timestamptz not null,
+  weight_kg numeric not null,
+  body_fat_pct numeric,
+  skeletal_muscle_pct numeric,
+  visceral_fat numeric,
+  bmi numeric,
+  source text not null check (source in ('screenshot','manual')),
+  ai_raw_json jsonb,
+  client_mutation_id uuid not null,
+  created_at timestamptz not null default now()
+);
+create index body_metrics_user_measured_at_idx on public.body_metrics(user_id, measured_at desc);
+create unique index body_metrics_user_client_mutation_id_uidx
+  on public.body_metrics(user_id, client_mutation_id);
+
+-- advice
+create table public.advice (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  correlation_id uuid,
+  kind text not null check (kind in ('daily','weekly','monthly')),
+  period_start date not null,
+  period_end date not null,
+  period_timezone text not null,
+  generated_at timestamptz not null default now(),
+  model text,
+  prompt_version text,
+  content_md text not null,
+  context_json jsonb,
+  user_reaction text check (user_reaction in ('useful','not_useful','applied')),
+  stale boolean not null default false,
+  stale_at timestamptz,
+  stale_reason text,
+  flagged boolean not null default false,
+  flagged_reason text,
+  constraint advice_user_kind_period_uk unique (user_id, kind, period_start)
+);
+create index advice_correlation_idx on public.advice(correlation_id) where correlation_id is not null;
+create index advice_user_kind_generated_idx on public.advice(user_id, kind, generated_at desc);
+
+-- inbox
+create table public.inbox (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  type text not null check (type in ('weekly_advice_ready','monthly_advice_ready','body_metrics_overdue')),
+  ref_id text not null,
+  title text not null,
+  body text,
+  data jsonb not null default '{}',
+  read_at timestamptz,
+  created_at timestamptz not null default now(),
+  constraint inbox_user_type_ref_uk unique (user_id, type, ref_id)
+);
+create index inbox_user_created_idx on public.inbox(user_id, created_at desc);
+create index inbox_user_unread_idx on public.inbox(user_id) where read_at is null;
+
+-- push_subscriptions
+create table public.push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  user_agent text,
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz,
+  fail_count int not null default 0
+);
+
+-- notification_deliveries
+create table public.notification_deliveries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  channel text not null,                  -- v1 'web_push'；不加 CHECK 留扩展
+  type text not null,
+  ref_id text not null,
+  status text not null check (status in ('sending','sent','failed','abandoned')),
+  attempts int not null default 0,
+  last_error text,
+  sent_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint notification_deliveries_user_channel_type_ref_uk unique (user_id, channel, type, ref_id)
+);
+```
+
+**完整 DDL 与 §3.1-§3.4 字段表的关系**：字段表是产品视角说明，DDL 是工程产物。两者出现分歧时**以本节 DDL 为准**（DDL 是 implementer 直接照抄的）。
 
 ---
 
@@ -447,9 +751,12 @@ export const FITNESS_MEAL_PRESETS = {
 
 ```
 用户拍照 → 客户端 HEIC normalize → resize 1024px / q=0.7 / ~512KB-1MB JPEG
-  → POST /api/meals/extract { image_base64 } (带 CSRF + auth + budget 检查)
-  → server: aiProvider.estimateMealFromImage(base64)
-  → 返回 { dish_name, kcal, protein, carb, fat, fiber, confidence, reasoning }
+  → POST /api/meals/extract { image_base64 }
+  → server: assertSameOrigin + requireAllowedUser({ fresh: true })
+          const correlationId = crypto.randomUUID()
+          const { usageDate } = await reserveAiBudget(userId, 'meal_photo')
+          aiProvider.estimateMealFromImage({ imageBase64 }, { userId, trigger:'user', correlationId, kind:'meal_photo', usageDate })
+  → 返回 { dish_name, kcal, protein, carb, fat, fiber, confidence, reasoning, _meta }
   → 前端展示预览卡片，允许编辑数值 + 饱腹感
   → 用户确认 → POST /api/meals/log (含 ai_raw_json + source='photo_ai')
   → 写 meals 表，照片丢弃
@@ -463,43 +770,90 @@ export const FITNESS_MEAL_PRESETS = {
 
 ```
 用户点 "今天怎么样" → POST /api/advice/daily { date }
-  → assertSameOrigin + requireAllowedUser({ fresh: true }) + reserveAiBudget(userId, 'daily_advice')
-  → 组装 context: 
+  → assertSameOrigin + requireAllowedUser({ fresh: true })
+  → const correlationId = crypto.randomUUID()
+  → const { usageDate } = await reserveAiBudget(userId, 'daily_advice')
+  → 组装 context（通过 fetchAdviceInputData，正确处理时区窗口）:
       - profile.targets (今日 workout/rest 选对应)
-      - workout_days[today]
-      - meals where ate_at::date = today (按时间戳排)
-      - body_metrics 最近 7 天 trend
+      - workout_days[todayLocal]
+      - fetchAdviceInputData({ userId, timezone, mealsRange: {today,today}, bodyMetricsRange: {today-6,today} })
+        → meals 当天，body_metrics 最近 7 天 trend
       - advice where kind='daily' order by generated_at desc limit 3
-  → aiProvider.generateDailyAdvice(ctx) → AdviceResult
-  → INSERT advice → 返回 content_md
+  → aiProvider.generateDailyAdvice(dailyCtx, { userId, trigger:'user', correlationId, kind:'daily_advice', usageDate }) → AdviceResult & _meta
+  → upsert advice on conflict (user_id, kind, period_start)（含 correlation_id 关联 ai_calls；period_start=本地今天）→ 返回 content_md + _meta
   → 不写 inbox（用户主动触发的不需要后备通知）
 ```
 
-#### 周 / 月建议（catch-up cron 自动）
+#### 周 / 月建议（catch-up cron 自动，reconciliation 模式）
+
+**核心设计原则**：cron catchup **不是问"当前时刻该不该生成 advice"，而是做"已结束 period 的 artifact 状态对账"**。否则单次 cron 失败 → 下次 cron 跑时 `weekStart` 已变成新一周 → 上周 advice 永远不生成。
 
 ```
 Vercel Cron UTC 13:00 → GET /api/cron/catchup (Authorization: Bearer CRON_SECRET)
   ↓
-findDueAdviceJobs(supabaseAdmin):
+findDueAdviceJobs(supabaseAdmin, ownerUserId): 返回 Job[]
   - 读 profiles.preferred_timezone
-  - 用 Luxon 算当前本地时间 + week/month cutoff
-  - 检查 advice 表存在性 → 返回 Job[]
-  ↓
+  - 枚举候选 period（按"已结束"判定）：
+      - weekly：最近 8 个已结束周（每周 startOfWeek 本地周一）
+                "已结束" = 周日本地 22:00 已过（即 weeklyCutoff < now()）
+      - monthly：最近 6 个已结束月（每月 startOfMonth 本地 1 号）
+                "已结束" = 月末本地 22:00 已过
+      - 当前周 / 当前月只有达到 cutoff 后才进入候选
+  - 对每个候选 period 算"目标 artifact 状态"是否齐全：
+      a) advice 表存在 `(user_id, kind, period_start)` 一行且 stale=false
+      b) inbox 表存在 `(user_id, type, ref_id)` 一行（type='${kind}_advice_ready', ref_id='${kind}:${periodStart}'）
+      c) cron_runs 该 period 的 run_key 最近一次 status='finished'
+  - **任一 artifact 缺失 → 返回该 period 为 due job**（带 adviceKind / periodStart / periodEnd / runKey / artifactGaps）
+  - body_metrics_overdue 同套路：检查今日是否已存在 inbox 行（按 body_metrics_overdue:${localToday} 去重）
+
 for each job:
-  → try_start_cron_run(job_name, run_key, 900s)
-    - false (已锁/已完成) → skip
+  → tryStartCronRun('advice_catchup', job.runKey, 900)  // job.runKey = `${adviceKind}:${periodStart}`
+    - false (本次 cron 还在锁定期内) → skip
     - true → 继续
-  → assembleContext(job)
-  → aiProvider.generateWeeklyAdvice (或 Monthly)
-  → upsert advice (UNIQUE 约束防重复)
-  → ensureInboxForAdvice (upsert inbox row)
-  → trySendPushOnce (insert notification_deliveries 抢 unique → push)
-  → finishCronRun (status='finished'，result=元数据)
-  
-失败时：
-  - advice / inbox 失败 → cron_runs.status='failed'，下次 catchup 重跑
-  - push 失败 → notification_deliveries.status='failed'，cron 仍 finished（inbox 已兜底）
+  → reconcileAdvicePeriod(job)  // 幂等 repair，不区分"新建"vs"补丁"
+    → 成功结束：finishCronRun('advice_catchup', job.runKey, 'finished', { adviceId, inboxEnsured })
+    → 抛错：finishCronRun('advice_catchup', job.runKey, 'failed', { error: msg }) + writeAppError(kind='cron')
 ```
+
+**`reconcileAdvicePeriod(job)` 幂等 repair**（取代旧的"先 advice 再 inbox 再 push 串行 + 失败重跑"）：
+
+```ts
+async function reconcileAdvicePeriod(job: ReconcileJob) {
+  // 1) 已有非 stale advice 复用；缺失/stale 才走 AI 生成
+  let advice = await getExistingAdvice(job.userId, job.adviceKind, job.periodStart);
+  if (!advice || advice.stale) {
+    const correlationId = crypto.randomUUID();
+    const aiCallKind = job.adviceKind === 'weekly' ? 'weekly_advice' : 'monthly_advice';
+    const { usageDate } = await reserveAiBudget(job.userId, aiCallKind);
+    const ctx = assembleContext(job);   // 内部用 fetchAdviceInputData + periodUtcRange
+    const result = job.adviceKind === 'weekly'
+      ? await aiProvider.generateWeeklyAdvice(ctx, { userId: job.userId, trigger:'cron', correlationId, kind: aiCallKind, usageDate })
+      : await aiProvider.generateMonthlyAdvice(ctx, { userId: job.userId, trigger:'cron', correlationId, kind: aiCallKind, usageDate });
+    advice = await upsertAdvice({ ...result, correlation_id: correlationId, user_id: job.userId,
+                                  kind: job.adviceKind, period_start: job.periodStart,
+                                  period_end: job.periodEnd, period_timezone: job.timezone, stale: false });
+  }
+
+  // 2) inbox 缺失时补（upsert 幂等）
+  await ensureInboxForAdvice(job.adviceKind, advice.id, job.userId, job.periodStart);
+
+  // 3) push 缺失时补（trySendPushOnce 内部抢 notification_deliveries unique 去重）
+  await trySendPushOnce(job.userId, job.adviceKind, job.periodStart, advice.id);
+
+  // 4) （注意：finishCronRun 由外层 catchup loop 调，不在这里调；这里只做 reconcile 业务逻辑）
+  return { adviceId: advice.id, inboxEnsured: true };
+}
+```
+
+**关键保证**：
+- 上次停在"advice 已生成、inbox 失败"→ 下次 catchup 候选 period 仍命中（inbox gap）→ reconcile 复用 advice 跳过 AI 重新生成 → 补 inbox + push + finish
+- 上次完全没跑（Vercel 整个挂了几天）→ 候选枚举里所有 gap period 都被找出来 → 逐个 reconcile
+- 旧周/月的 advice 已 stale（用户改了 meals trigger 标 stale）→ reconcile 看到 stale=true 重新生成
+- run_key 编码 `kind+periodStart`（如 `weekly:2026-05-18`），同 period 多次 cron 触发用 try_start_cron_run 锁住，重复无害
+
+失败时：
+- AI 调用 / DB upsert 失败 → 抛错，外层 catchup loop catch 后写 app_errors(kind='cron') + cron_runs.status='failed'；下次 catchup 仍把该 period 当 due 重跑
+- push 失败 → notification_deliveries.status='failed'，**不阻断 finishCronRun**（inbox 已兜底）
 
 ### 4.4 体重 / 体脂录入
 
@@ -507,8 +861,11 @@ for each job:
 [截图路径]
 用户点 "记体重" → 选 [拍 Omron Connect 截图]
   → 同图片管线（HEIC normalize / compress / base64）
-  → POST /api/body/extract → aiProvider.extractBodyMetrics
-  → { weight_kg, body_fat_pct, skeletal_muscle_pct, visceral_fat, measured_at?, confidence }
+  → POST /api/body/extract → assertSameOrigin + requireAllowedUser({ fresh: true })
+  → const correlationId = crypto.randomUUID()
+  → const { usageDate } = await reserveAiBudget(userId, 'body_ocr')
+  → aiProvider.extractBodyMetrics({ imageBase64 }, { userId, trigger:'user', correlationId, kind:'body_ocr', usageDate })
+  → { weight_kg, body_fat_pct, skeletal_muscle_pct, visceral_fat, measured_at?, confidence, _meta }
   → 前端预览，可改
   → POST /api/body/log → 写 body_metrics + 更新 profiles.current_weight_kg
 
@@ -529,7 +886,7 @@ fetch('/api/meals/log', {
 });
 ```
 
-服务端在 §3.2 `(user_id, client_mutation_id)` partial unique index 兜底，重复提交只生成一条。
+服务端在 §3.2 meals + body_metrics 的 `(user_id, client_mutation_id)` 普通 unique index 兜底（client_mutation_id NOT NULL），重复提交只生成一条。`POST /api/body/log` 用 `ON CONFLICT (user_id, client_mutation_id) DO NOTHING` 写 body_metrics。**API 层强制要求 `Idempotency-Key` header，缺失返 400**。
 
 ### 4.4.1 拍照预览页 UX 提示（trade-off 透明）
 
@@ -574,7 +931,11 @@ findDueAdviceJobs 内部:
 新用户首次登录 → 引导页:
   1. 输入身高 / 出生年 / 性别 / 训练频率 / preferred_timezone
   2. 输入当前体重 + 可选体脂
-  3. POST /api/setup → aiProvider.computeInitialTargets → 写 profiles
+  3. POST /api/setup → assertSameOrigin + requireAllowedUser({ fresh: true })
+     → const correlationId = crypto.randomUUID()
+     → const { usageDate } = await reserveAiBudget(userId, 'initial_targets')
+     → aiProvider.computeInitialTargets(profileInput, { userId, trigger:'user', correlationId, kind:'initial_targets', usageDate })
+     → **直接写 profiles**（不强制预览页 — initial targets 是可编辑配置，§1 决策 #1 "AI 给初始 → 用户可覆盖"语义；设置页本身作为"确认/覆盖入口"，等价于预览）
   4. 跳主页
 ```
 
@@ -587,6 +948,34 @@ App 启动 / 切前台 → 查 inbox WHERE read_at IS NULL → count
   → 点某项 → 跳详情 + UPDATE read_at=now()
 ```
 
+### 4.9 AI 调用 UX 标准（provider + 耗时显示）
+
+所有 AI 入口（拍餐 / 体重截图 / 日建议）必须显示**实时进度** + **结果后透明性**：
+
+**调用中**：
+- 按钮变为 loading 态 + 显示秒数计数器（`elapsed = (now - start_ms) / 1000`，前端本地 timer），实时刷新
+- Phase 1 单 provider 也显示：例如 "AI 识别中... 1.2s | provider: anthropic_api"
+- 不设硬超时，但 elapsed 超过 POC P95 target（30s，§5.7）时 UI 加一行小灰字"这次稍慢，可继续等或按取消"
+- **前端 elapsed ≠ 后端 `_meta.durationMs`**：前端 elapsed 包含网络往返 + 排队 + 用户断网等待，后端 durationMs 只覆盖 provider method 内部测量窗口；两者通常差 0.2-1s，断网时前端 elapsed 会持续累加直到 fetch reject（此时不展示 `_meta`）
+
+**结果回来**：
+- 预览卡片底部 chip：`anthropic_api · 1.8s · 1 attempt`（数据从 result._meta 取）
+- Phase 3 发生 fallback 的调用，chip 显示：`anthropic_api (fallback from claude_agent_sdk) · 1.8s · 1 attempt`，让用户看到主路径异常但已自动救回。`_meta.durationMs` 和 `attempts` 都是 fallback provider 的单测量值，**不含 primary 那段耗时**；要看 primary 也尝试了多久得点 chip 展开查 ai_calls（按 correlation_id 聚合两行）
+- chip 点击展开 dev 详情（仅 dev / debug 模式）：`_meta` 全部字段 + correlationId（用于在 /admin/debug 查 ai_calls）
+
+**前端取 `_meta`**：每个 AI provider method 返回值都附 `_meta: AiMeta`（§5.2 类型，含 optional `fallbackFrom`）。前端 hook：
+
+```ts
+function useAiCall<T>(fn: () => Promise<T & { _meta: AiMeta }>) {
+  const [start, setStart] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  // tick 100ms 刷新 elapsed；调用结束 setStart(null) 停止
+  // 返回 { call, elapsed, result, meta, error }
+}
+```
+
+**为什么 Phase 1 单 provider 也要显示**：Phase 3 切换时前端 UI 完全不动，避免"phase 3 切完前端才发现没做 _meta 展示" 的工程坑（§5.7 Phase 1 已注明）。
+
 ---
 
 ## 5. AI Provider 抽象层
@@ -595,14 +984,17 @@ App 启动 / 切前台 → 查 inbox WHERE read_at IS NULL → count
 
 ```
 lib/ai-provider/
-├── index.ts            ← getAiProvider() 工厂
+├── index.ts            ← getAiProvider() 入口（带 fallback 包装）
+├── config.ts           ← AI_PRIMARY_PROVIDER / AI_FALLBACK_PROVIDER 代码常量（要切换改这里）
 ├── types.ts            ← Zod schemas + types
 ├── interface.ts        ← AiProvider interface
-├── claude-api.ts       ← ClaudeApiProvider (Phase 1)
-├── claude-agent-sdk.ts ← ClaudeAgentSdkProvider (Phase 2)
-├── mock.ts             ← MockAiProvider (测试用)
-├── factory.ts          ← env-based 选择
-├── retry.ts            ← callWithRetry 通用重试
+├── claude-api.ts       ← ClaudeApiProvider（Anthropic Messages API + API key）
+├── sandbox-agent.ts    ← SandboxAgentSdkProvider（Phase 3 走 Vercel Sandbox + Agent SDK + Max credit）
+├── mock.ts             ← MockAiProvider（测试用）
+├── factory.ts          ← 按 config.ts 实例化 primary / fallback
+├── fallback.ts         ← withFallback() 包装器：primary 抛 fallback-eligible AIError 时切 fallback（fallback 分类见 §5.7.2）
+├── retry.ts            ← callWithRetry 通用重试（transport / schema）
+├── budget.ts           ← reserveAiBudget / settleAiBudget
 └── prompts/
     ├── meal-extract.ts        ← NUTRITION_PROMPT_VERSION + builder
     ├── body-extract.ts
@@ -614,37 +1006,119 @@ lib/ai-provider/
 
 ### 5.2 统一接口
 
+签名详见 §5.5.1（双参 `(input, ctx)` + 返回值附 `_meta`）。摘要：
+
 ```ts
 export interface AiProvider {
-  estimateMealFromImage(imageBase64: string): Promise<NutritionEstimate>;
-  extractBodyMetrics(imageBase64: string): Promise<BodyMetricsExtracted>;
-  computeInitialTargets(input: ProfileInput): Promise<TargetSet>;
-  generateDailyAdvice(ctx: DailyContext): Promise<AdviceResult>;
-  generateWeeklyAdvice(ctx: WeeklyContext): Promise<AdviceResult>;
-  generateMonthlyAdvice(ctx: MonthlyContext): Promise<AdviceResult>;
+  // 自报家门：withFallback 需要知道 primary / fallback 各自是谁，才能写 _meta.fallbackFrom
+  readonly providerName: ProviderName;
+
+  estimateMealFromImage(input: { imageBase64: string }, ctx: CallContext): Promise<NutritionEstimate & WithMeta>;
+  extractBodyMetrics(input: { imageBase64: string }, ctx: CallContext): Promise<BodyMetricsExtracted & WithMeta>;
+  computeInitialTargets(input: ProfileInput, ctx: CallContext): Promise<TargetSet & WithMeta>;
+  generateDailyAdvice(input: DailyContext, ctx: CallContext): Promise<AdviceResult & WithMeta>;
+  generateWeeklyAdvice(input: WeeklyContext, ctx: CallContext): Promise<AdviceResult & WithMeta>;
+  generateMonthlyAdvice(input: MonthlyContext, ctx: CallContext): Promise<AdviceResult & WithMeta>;
 }
+
+type AiMeta = {
+  provider: ProviderName;         // 最终提供结果的 provider（如发生 fallback 则是 fallback 那个）
+  fallbackFrom?: ProviderName;    // 仅当走了 fallback 时填，例如 'claude_agent_sdk'
+  durationMs: number;             // 该 provider 内部测量的耗时（从 provider method 进入到返回）
+  attempts: number;               // 该 provider 内部 transport attempts 次数（来自 callWithRetry）
+  costCents?: number;             // 该 provider 内部测量的实际成本 cents（成功时；mock/失败为 undefined）。供 withFallback settle monthly cap 用，前端不显示
+};
+type WithMeta = { _meta: AiMeta };
 ```
 
-### 5.3 工厂模式
+### 5.3 工厂模式（代码常量 + Primary/Fallback 双 Provider）
+
+**为什么用代码常量而不是 env**：所有业务统一走同一 provider，不做"按业务类型路由"；切换频率极低（Phase 1 → Phase 3 大约一年内只切一次），改代码 commit + redeploy 比改 env 留更明确的版本记录。
 
 ```ts
+// lib/ai-provider/config.ts —— 唯一切换点
+export type ProviderName = 'anthropic_api' | 'claude_agent_sdk' | 'mock';
+
+// Phase 1：单 primary，无 fallback
+export const AI_PRIMARY_PROVIDER: ProviderName = 'anthropic_api';
+export const AI_FALLBACK_PROVIDER: ProviderName | null = null;
+
+// Phase 3（POC 通过后改为）：
+// export const AI_PRIMARY_PROVIDER: ProviderName = 'claude_agent_sdk';
+// export const AI_FALLBACK_PROVIDER: ProviderName | null = 'anthropic_api';
+```
+
+```ts
+// lib/ai-provider/index.ts —— 唯一入口
+import { AI_PRIMARY_PROVIDER, AI_FALLBACK_PROVIDER } from './config';
+import { withFallback } from './fallback';
+
 export function getAiProvider(): AiProvider {
   if (process.env.NODE_ENV === 'test' && process.env.MOCK_AI === '1') {
     return new MockAiProvider();
   }
-  switch (process.env.AI_PROVIDER) {
-    case 'agent-sdk':
-      return new ClaudeAgentSdkProvider({ oauthToken: process.env.CLAUDE_OAUTH_TOKEN! });
-    case 'api-key':
-    default:
+  const primary = instantiate(AI_PRIMARY_PROVIDER);
+  if (!AI_FALLBACK_PROVIDER) return primary;          // Phase 1 直接返 primary
+  const fallback = instantiate(AI_FALLBACK_PROVIDER); // Phase 3 套 withFallback
+  return withFallback(primary, fallback);
+}
+
+function instantiate(name: ProviderName): AiProvider {
+  switch (name) {
+    case 'anthropic_api':
       return new ClaudeApiProvider({ apiKey: process.env.ANTHROPIC_API_KEY! });
+    case 'claude_agent_sdk':
+      return new SandboxAgentSdkProvider({
+        snapshotId: process.env.CLAUDE_AGENT_SNAPSHOT_ID!,
+        oauthToken: process.env.CLAUDE_CODE_OAUTH_TOKEN!,
+      });
+    case 'mock':
+      // 生产 guard：config.ts 误改成 'mock' 也不会污染生产
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error("ProviderName='mock' is not allowed in production");
+      }
+      return new MockAiProvider();
   }
 }
 ```
 
-**Phase 1/2 切换 = 改环境变量 + 重新部署，0 业务代码改动。**
+**切换 = 改 `config.ts` 两行常量 + commit + redeploy**。零业务代码改动；env 只承载部署期注入的值（secrets + 资源 id），不承载"走哪个 provider"的判断（详细 env 清单见 §6.8）。
 
 ### 5.4 retry / schema 校验（修订版，分开 transport / schema retry）
+
+**前置：AIError 类 + AIErrorCategory union**（跨模块契约，业务层 / Provider / withFallback / UI / Mock 都依赖；放在 `lib/ai-provider/errors.ts`）：
+
+```ts
+// lib/ai-provider/errors.ts
+export type AIErrorCategory =
+  | 'transport'             // 5xx / 网络 / sandbox 启动失败；fallback-eligible
+  | 'auth_oauth'            // 401/403；fallback-eligible（Sandbox OAuth 失效特别处理）
+  | 'schema_invalid'        // Zod 校验失败 / 数值越界（§5.5.2 assertInRange）；fallback-eligible
+  | 'rate_limit'            // 429 attempts 耗尽 / daily budget 拒绝；不 fallback
+  | 'fallback_cap_cron_skip'// withFallback cron 路径 monthly cap 拒绝；不 fallback
+  | 'cancelled'             // 调用方主动取消；不 fallback、不写 app_errors
+  | 'unknown';              // 未分类；保守不 fallback
+
+export class AIError extends Error {
+  constructor(
+    public readonly category: AIErrorCategory,
+    public readonly retryable: boolean,    // 仅 hint，retry 决策由 callWithRetry 内部做
+    message: string,
+    public cause?: unknown,                // 原始 error 或 primary error（withFallback 用）
+    public attempts?: number,              // 失败前的 transport attempts 次数（callWithRetry 抛错时挂）
+  ) {
+    super(message);
+    this.name = 'AIError';
+  }
+}
+```
+
+**`cause` 字段的多重语义**（同一字段在不同抛出点承载不同上下文，使用方按场景读）：
+- `classifyAnthropicError(e)` 抛出时：`cause = e`（原始 Anthropic SDK error）
+- `withFallback` 重抛 fallback err 时：`cause = primaryErr`（替换为 primary 错；fallback 原 cause 在 `app_errors.context` 已记录）
+- `callWithRetry` 抛 transport / schema error 时：除了 `cause`，还在 `attempts` 字段挂 transport attempts 次数
+
+**注意**：本节给出 `callWithRetry` 的早期签名（返回 `Promise<T>`）以及 retry/分类策略框架；**最终签名是 §5.5.1 修订版**（返 `{ data, attempts, usage }`），实现以 §5.5.1 为准。本节保留是为了说清 retry 策略、`classifyAnthropicError`、429 分类等核心逻辑。
 
 ```ts
 type AIAttempt = { attempt: number; schemaRetry: boolean };
@@ -679,7 +1153,28 @@ const isRetriableAnthropicError = (e: any) =>
   [408, 409, 429].includes(e?.status) || e?.status >= 500;
 const jitteredBackoffMs = (n: number) =>
   Math.floor(Math.min(1000 * 2 ** n, 10_000) * (0.5 + Math.random()));
+
+// parseRetryAfter 必须 cap：Anthropic 429 偶尔返回很长 Retry-After（30s+），
+// 叠加"无硬超时"会让用户等很久。cap 到 15s 后继续 retry；attempts 耗尽后照常分类 rate_limit
+function parseRetryAfter(h?: string): number | null {
+  if (!h) return null;
+  const sec = Number(h);
+  if (!Number.isFinite(sec) || sec <= 0) return null;
+  return Math.min(sec * 1000, 15_000);
+}
+
+// classifyAnthropicError 必须把 429 归入 'rate_limit'（不是 'transport'）
+// 否则 withFallback 会把 429 当 transport 切 fallback —— Anthropic 429 是计费/速率限制，
+// 切 fallback 也只是把同一账户限流转嫁到 fallback provider，毫无意义
+function classifyAnthropicError(e: any): AIError {
+  if (e?.status === 429) return new AIError('rate_limit', false, e?.message ?? 'rate limited', e);
+  if (e?.status >= 500 || [408, 409].includes(e?.status)) return new AIError('transport', false, e?.message ?? 'transport failure', e);
+  if (e?.status === 401 || e?.status === 403) return new AIError('auth_oauth', false, e?.message ?? 'auth failed', e);
+  return new AIError('unknown', false, e?.message ?? 'unclassified', e);
+}
 ```
+
+**为什么 429 既 retry 又分类为 rate_limit**：retry 由 callWithRetry 在 provider 内做（贴近调用点），但若 retry 耗尽 attempts 仍 429，最终抛错必须分类为 `rate_limit` 让 withFallback 不切 fallback。两个行为不冲突：一个是同 provider 内的短时重试，一个是 attempts 耗尽后的最终分类。
 
 ### 5.5 Prompt Injection 隔离
 
@@ -700,55 +1195,78 @@ Security rules:
 
 Vision 系统提示同样规则。**`body_metrics.ai_raw_json.reasoning` 默认不再喂回模型**（高风险污染源）。
 
-### 5.5.1 AI Provider 调用责任划分（修订版）
+### 5.5.1 AI Provider 调用责任划分（修订版：调用元数据 + 多行 ai_calls + fallback 通透）
 
-业务层调用 AI 时的标准顺序，**budget / ai_calls / retry 谁负责什么必须明确**：
+**调用元数据（call metadata）独立于业务参数**：每个 AiProvider method 的签名是 `(input, ctx)` 双参；`input` 是业务内容（imageBase64 / ProfileInput 等），`ctx` 是 observability + budget + fallback 决策需要的非业务字段。
+
+```ts
+// lib/ai-provider/interface.ts —— 修订接口签名
+export type CallTrigger = 'user' | 'cron' | 'admin';
+
+export interface CallContext {
+  userId: string;
+  trigger: CallTrigger;          // §5.7 fallback cap 判定用
+  correlationId: string;          // 一次"逻辑调用"的稳定 id（uuid），primary/fallback 多行 ai_calls 通过它聚合（详见 R3 §3.5）
+  kind: AiCallKind;               // 'meal_photo' / 'daily_advice' / ...
+  usageDate: string;              // R3 加：来自 reserveAiBudget 返回的 RPC OUT usage_date，provider settle 时必须用此值（跨 UTC 日边界一致性）
+}
+```
+
+> AiProvider 接口完整签名在 §5.2，本节省略重复（每个 method 返回 `Promise<X & WithMeta>`，加 `readonly providerName: ProviderName`）。
 
 ```ts
 // API route 层（业务入口）
 export async function POST(req: Request) {
   assertSameOrigin(req);
   const { userId } = await requireAllowedUser({ fresh: true });
-  // 1. budget 预约：原子 reserve（FOR UPDATE 串行化），不通过抛 AIError('rate_limit')
-  await reserveAiBudget(userId, 'meal_photo');
-  // 2. provider 内部负责 ai_calls 记录 + retry，最终 settle 实际成本
+  const correlationId = crypto.randomUUID();
+  // 1. budget 预约：原子 reserve（FOR UPDATE 串行化）；返 false 时 reserveAiBudget 内部抛 AIError('rate_limit')
+  const { usageDate } = await reserveAiBudget(userId, 'meal_photo');
+  // 2. provider 内部负责 ai_calls 记录 + retry，最终 settle 实际成本（用 ctx.usageDate）
   const provider = getAiProvider();
-  const result = await provider.estimateMealFromImage({ userId, imageBase64 });
+  const result = await provider.estimateMealFromImage(
+    { imageBase64 },
+    { userId, trigger: 'user', correlationId, kind: 'meal_photo', usageDate }
+  );
+  // result 已附带 _meta（provider name / duration_ms），前端用来显示
   return Response.json(result);
 }
 
 // Provider 内部（ClaudeApiProvider.estimateMealFromImage 伪代码）
-async estimateMealFromImage({ userId, imageBase64 }: { userId: string; imageBase64: string }) {
-  const callId = await startAiCall(userId, 'meal_photo', model, NUTRITION_PROMPT_VERSION);
+async estimateMealFromImage(input: { imageBase64: string }, ctx: CallContext): Promise<NutritionEstimate> {
+  const t0 = performance.now();
+  // 一次 provider 尝试 = 一行 ai_calls，主键 (correlation_id, provider) 唯一；详见 R3 §3.5
+  const callId = await startAiCall({
+    userId: ctx.userId,
+    correlationId: ctx.correlationId,
+    provider: 'anthropic_api',
+    kind: ctx.kind,
+    trigger: ctx.trigger,
+    model: NUTRITION_MODEL,
+    promptVersion: NUTRITION_PROMPT_VERSION,
+  });
   let actualCents = 0;
   try {
     const { data, attempts, usage } = await callWithRetry(
-      (ctx) => anthropic.messages.create({ ... }),
+      (rctx) => anthropic.messages.create({ ... }),
       NutritionEstimateSchema,
+      { maxTransportAttempts: 4, maxSchemaRetries: 1 },  // 默认 API provider 配置
     );
-    actualCents = estimateCostCents(model, usage);
-    await finishAiCall(callId, {
-      status: 'succeeded',
-      attempt: attempts,
-      usage,
-      estimatedCostUsd: actualCents / 100,
-    });
-    return data;
+    actualCents = estimateCostCents(NUTRITION_MODEL, usage);
+    await finishAiCall(callId, { status: 'succeeded', attempt: attempts, usage, estimatedCostUsd: actualCents / 100, latencyMs: Math.round(performance.now() - t0) });
+    return attachMeta(data, { provider: 'anthropic_api', durationMs: Math.round(performance.now() - t0), attempts, costCents: actualCents });
   } catch (e: any) {
-    await finishAiCall(callId, {
-      status: 'failed',
-      errorCode: e.code ?? 'unknown',
-      errorMessage: e.message,
-    });
+    // callWithRetry 抛错时也带 attempts 信息（AIError 在 cause 里挂；§5.4 实现需支持），失败行也要更新 attempt
+    const failedAttempts = (e instanceof AIError && (e.cause as any)?.attempts) || (e as any)?.attempts || undefined;
+    await finishAiCall(callId, { status: 'failed', attempt: failedAttempts, errorCode: e.code ?? 'unknown', errorMessage: e.message, latencyMs: Math.round(performance.now() - t0) });
     throw e;
   } finally {
-    // settle：把预约的 cents 与实际差异回填（失败时 actualCents=0 退回全部预约）
-    await settleAiBudget(userId, 'meal_photo', actualCents);
+    await settleAiBudget(ctx.userId, ctx.kind, ctx.usageDate, actualCents);
   }
 }
 ```
 
-**`callWithRetry` 返回带 `attempts` 和 `usage` 字段的对象**（§5.4 函数签名修订，见下文）：
+**`callWithRetry` 返回 `{ data, attempts, usage }`**（§5.4 函数签名修订，见下文）：
 
 ```ts
 // §5.4 callWithRetry 签名修订
@@ -761,11 +1279,96 @@ export async function callWithRetry<T>(
 }
 ```
 
-**关键约定：**
-- **`ai_calls` 一行 = 一次"逻辑调用"**（不管 retry 了几次）；transport retry 次数记 `attempt` 字段
+**关键约定（修订版）：**
+
+- **`ai_calls` 一行 = 一次"provider 尝试"**（不是"逻辑调用"）；主键 `(correlation_id, provider)`，primary 失败后切 fallback 会插第二行，便于追踪两次都做了什么（详见 R3 §3.5）
+- **一次"逻辑调用"** 通过 `correlation_id` 聚合：业务层（API route）在调用 provider 前 `crypto.randomUUID()` 生成一次 `correlationId`，整条调用链共用（primary 那行 ai_calls / fallback 那行 ai_calls / 成功后写入 advice 表的字段都用同一个 id）；advice 表加 `correlation_id` 字段（R3）
+- **Provider 内部完成 `transport retry`**（按 `maxTransportAttempts`）+ `schema retry`（按 `maxSchemaRetries`），耗尽后抛 `AIError(category, retryable)`；业务层 / `withFallback` 只看 `AIError.category`，不感知 retry 次数
+- **`withFallback` 仅 catch fallback-eligible 的 AIError**（见 §5.7.2 分类表），不重新做 transport / schema retry —— 避免与 callWithRetry 重叠
+- **`maxTransportAttempts` 命名口径**：表示**总尝试次数**（含首次），不是"重试次数"；API provider 默认 4，Sandbox provider 设 3
 - **Budget 按"乐观预约 → 实际 settle"两步走**，并发由 `FOR UPDATE` 串行化（§7.3）
-- **schema retry / transport retry 都在 provider 内部**，业务层只 try-catch `AIError`
-- **settle 放 `finally`**，无论 succeed/fail 都会执行（失败时 actualCents=0 全退）
+- **Fallback 路径的 daily budget 处理**：`withFallback` 切到 fallback 前必须**再调一次 `reserveAiBudget`**（用 fallback 的 usageDate clone 一份 ctx），让 fallback provider 的 finally settle 有对应的 reserve；否则 primary settle(0) 退掉 preEstimate 后，fallback settle(actual) 算 delta 会少算一个 preEstimate。fallback reserve 触发 daily cap 拒绝时抛 `rate_limit` 给业务层（与正常 reserve 拒绝同行为），**cause 挂 primaryErr**，**且 cron 路径需先 `settleFallbackMonthlyCap(0)` 退掉已预约的 monthly cap**（避免 monthly 账本多算 preEstimate；详见 §5.5.1 withFallback 伪代码 catch dailyReserveErr 分支）。fallback 抛错时 fallback provider finally 调 settle(0) 把第二次 reserve 退回，账本回到 primary 失败后的状态
+- **settle 放 `finally`**，无论 succeed/fail 都执行（失败时 actualCents=0 全退）
+- **每个 provider method 返回值附 `_meta: AiMeta`**（§5.2 类型）：
+  - `provider` = 最终给出结果的 provider（fallback 后是 fallback 那个）
+  - `fallbackFrom` 仅当 `withFallback` 切到 fallback 时由 `withFallback` 在 fallback 返回结果后 mutation `_meta.fallbackFrom = primary.providerName`；来源是 `AiProvider.providerName` 自报字段（§5.2）
+  - `durationMs` / `attempts` 都是单 provider 内部测量值；前端要"总尝试 = primary attempts + fallback attempts" 时，从两行 ai_calls 聚合（用 correlation_id），不在 `_meta` 内累加
+  - 前端用 `_meta` 渲染 "由 anthropic_api 在 1.8s 内完成 (1 次)" 或 "由 anthropic_api 接住（fallback from claude_agent_sdk）· 1.8s · 1 次"（§4.9 UX 章节统一规范）
+
+**`withFallback` 包装器实现要点**（伪代码）：
+
+```ts
+// lib/ai-provider/fallback.ts
+export function withFallback(primary: AiProvider, fallback: AiProvider): AiProvider {
+  const wrap = <Method extends keyof Omit<AiProvider, 'providerName'>>(method: Method) => {
+    return async (...args: any[]) => {
+      try {
+        return await (primary[method] as any)(...args);  // primary 内部完成 transport/schema retry
+      } catch (primaryErr: any) {
+        if (!(primaryErr instanceof AIError) || !FALLBACK_ELIGIBLE.has(primaryErr.category)) throw primaryErr;
+        const ctx = args[1] as CallContext;
+        // 月度 fallback cap 检查（详见 §7.3 R3 实现）
+        const ctxIsCron = ctx.trigger === 'cron';
+        let monthlyUsage: string | null = null;
+
+        // 维护者日志：fallback 路径被触发时，按 primary 错的 category 区分写不同 kind
+        // - auth_oauth → 'oauth_token_expired'（特别突出，提示维护者续 token）
+        // - 其他 fallback-eligible → 'provider_fallback'（普通 fallback 触发记录）
+        const appErrorKind = primaryErr.category === 'auth_oauth' ? 'oauth_token_expired' : 'provider_fallback';
+        await writeAppError({ kind: appErrorKind, correlationId: ctx.correlationId, context: { primary: primary.providerName, category: primaryErr.category, message: primaryErr.message } });
+
+        if (ctxIsCron) {
+          const { ok, usageMonth } = await tryReserveFallbackMonthlyCap(ctx.userId, ctx.kind);
+          if (!ok) {
+            await writeAppError({ kind: 'fallback_cap_cron_skip', correlationId: ctx.correlationId });
+            throw new AIError('fallback_cap_cron_skip', false, 'fallback monthly $5 exhausted; cron skipped', primaryErr);
+          }
+          monthlyUsage = usageMonth;
+        }
+        // **关键**：fallback 切换前必须再做一次 daily budget reserve，对称 primary settle(0) 的退款，
+        // 保证 fallback provider 内 finally 的 settle(actualCost) 有对应的 reserve 抵消 preEstimate delta。
+        // 否则会发生：primary settle(0) 退 2 cents + fallback settle(3) delta=+1 = 账本只 +1，期望 +3
+        // 但 daily reserve 可能因当日 cap 满了而拒绝 → 必须先退掉前面（cron 已 reserve 的）monthly cap，
+        // 否则 monthly 账本会多算一个 preEstimate（且永远不会被 settle 回）
+        let fbUsageDate: string;
+        try {
+          ({ usageDate: fbUsageDate } = await reserveAiBudget(ctx.userId, ctx.kind));
+        } catch (dailyReserveErr: any) {
+          if (ctxIsCron && monthlyUsage) {
+            await settleFallbackMonthlyCap(ctx.userId, ctx.kind, monthlyUsage, 0);   // 退 monthly cap reserve
+          }
+          if (dailyReserveErr instanceof AIError) (dailyReserveErr as any).cause = primaryErr;  // 保留 primary 错为 cause
+          throw dailyReserveErr;
+        }
+        const fallbackCtx = { ...ctx, usageDate: fbUsageDate };
+        let fallbackResult: any = null;
+        let fallbackErrCaught: any = null;
+        try {
+          fallbackResult = await (fallback[method] as any)(args[0], fallbackCtx);
+          fallbackResult._meta.fallbackFrom = primary.providerName;
+        } catch (fallbackErr: any) {
+          fallbackErrCaught = fallbackErr;
+          if (fallbackErr instanceof AIError) (fallbackErr as any).cause = primaryErr;
+        }
+        // settle monthly cap：仅 cron 路径预约过；actualCents 从 fallback _meta.costCents 拿（失败/undefined 时 0）
+        if (ctxIsCron && monthlyUsage) {
+          const actual = fallbackResult?._meta?.costCents ?? 0;
+          await settleFallbackMonthlyCap(ctx.userId, ctx.kind, monthlyUsage, actual);
+        }
+        if (fallbackErrCaught) throw fallbackErrCaught;
+        return fallbackResult;
+      }
+    };
+  };
+  return {
+    providerName: fallback.providerName,
+    estimateMealFromImage: wrap('estimateMealFromImage'),
+    // ... 其余 5 个 method
+  } as AiProvider;
+}
+
+const FALLBACK_ELIGIBLE = new Set<AIErrorCategory>(['transport', 'auth_oauth', 'schema_invalid']);
+```
 
 ### 5.5.2 AI 输出 Sanity Check（防离谱建议）
 
@@ -882,9 +1485,38 @@ async function buildAdviceContext(userId: string, kind: 'weekly' | 'monthly') {
 - "不要因延续上次方向而做出与当前数据矛盾的判断"
 - "如果用户上周减脂目标达成但体重未降，重新评估目标值，不要直接延续"
 
-### 5.5.4 喂回数据剥除 reasoning（单一通道）
+### 5.5.4 喂回数据剥除 reasoning（单一通道）+ 时区窗口正确查询
 
-`meals.ai_raw_json` 和 `body_metrics.ai_raw_json` 里的 `reasoning` 字段在喂回 AI 之前**必须剥除**，且必须走**单一通道**避免漏：
+`meals.ai_raw_json` 和 `body_metrics.ai_raw_json` 里的 `reasoning` 字段在喂回 AI 之前**必须剥除**，且必须走**单一通道**避免漏。
+
+**关键：period_start / period_end 是用户本地日（date 字符串），不能直接当 timestamptz 比较** — 否则 `lte('ate_at', '2026-05-24')` 会被解释成 `<= 2026-05-24 00:00 UTC`，整个周日的餐（本地时间）全漏。必须先把本地日转换为 UTC range：
+
+```ts
+// lib/time/period.ts —— period date → UTC timestamptz 半开区间
+import { DateTime } from 'luxon';
+
+export function periodUtcRange(periodStartDate: string, periodEndDate: string, timezone: string) {
+  // periodStartDate / periodEndDate 是 ISO date string，例如 '2026-05-18' / '2026-05-24'
+  // 含义是用户本地日：周一 00:00 → 周日 24:00（含周日整天）
+  const startUtc = DateTime
+    .fromISO(periodStartDate, { zone: timezone })
+    .startOf('day')
+    .toUTC()
+    .toISO()!;
+
+  // 半开右边：endDate + 1 天 00:00 本地 → UTC（即周日 24:00 = 周一 00:00）
+  const endExclusiveUtc = DateTime
+    .fromISO(periodEndDate, { zone: timezone })
+    .plus({ days: 1 })
+    .startOf('day')
+    .toUTC()
+    .toISO()!;
+
+  return { startUtc, endExclusiveUtc };
+}
+```
+
+**daily advice 同样适用**（`periodStartDate = periodEndDate = todayLocal`），就是单天的 [00:00 local → next-day 00:00 local] UTC range。
 
 ```ts
 // lib/ai-provider/context-builder.ts
@@ -897,13 +1529,27 @@ function stripAiRawJson<T extends { ai_raw_json?: any }>(rows: T[]): T[] {
 }
 
 // 唯一对外暴露的 context fetcher：所有 advice 生成流程都通过它
-// （§4.3 advice 生成"组装 context"步骤必须通过这个函数，禁止直查 meals.ai_raw_json）
-export async function fetchAdviceInputData(userId: string, periodStart: string, periodEnd: string) {
+// **拆开 mealsRange 和 bodyMetricsRange**：daily advice 需要 meals=today / body=最近7天，两个 range 不同
+// 周/月 advice 两个 range 传相同 period 即可
+type DateRange = { startDate: string; endDate: string };
+type FetchAdviceInput = {
+  userId: string;
+  timezone: string;
+  mealsRange: DateRange;
+  bodyMetricsRange: DateRange;
+};
+
+export async function fetchAdviceInputData(input: FetchAdviceInput) {
+  const { userId, timezone, mealsRange, bodyMetricsRange } = input;
+  const mealsRangeUtc = periodUtcRange(mealsRange.startDate, mealsRange.endDate, timezone);
+  const bodyRangeUtc = periodUtcRange(bodyMetricsRange.startDate, bodyMetricsRange.endDate, timezone);
   const [{ data: meals }, { data: bodyMetrics }] = await Promise.all([
     supabaseAdmin.from('meals').select('*')
-      .eq('user_id', userId).gte('ate_at', periodStart).lte('ate_at', periodEnd),
+      .eq('user_id', userId)
+      .gte('ate_at', mealsRangeUtc.startUtc).lt('ate_at', mealsRangeUtc.endExclusiveUtc),
     supabaseAdmin.from('body_metrics').select('*')
-      .eq('user_id', userId).gte('measured_at', periodStart).lte('measured_at', periodEnd),
+      .eq('user_id', userId)
+      .gte('measured_at', bodyRangeUtc.startUtc).lt('measured_at', bodyRangeUtc.endExclusiveUtc),
   ]);
   return {
     meals: stripAiRawJson(meals ?? []),
@@ -912,7 +1558,28 @@ export async function fetchAdviceInputData(userId: string, periodStart: string, 
 }
 ```
 
-**规则**：所有 advice 生成（日/周/月）必须通过 `fetchAdviceInputData()` 拿历史 meal/body 数据，**禁止业务层直接 query `meals.ai_raw_json`** 然后喂给 AI。
+**调用方传参示例**：
+
+```ts
+// daily advice（meals 当天，body 最近 7 天）
+const daily = await fetchAdviceInputData({
+  userId, timezone,
+  mealsRange: { startDate: todayLocal, endDate: todayLocal },
+  bodyMetricsRange: { startDate: minusDaysLocal(todayLocal, 6), endDate: todayLocal },
+});
+
+// weekly advice（两 range 相同）
+const weekly = await fetchAdviceInputData({
+  userId, timezone,
+  mealsRange: { startDate: weekStart, endDate: weekEnd },
+  bodyMetricsRange: { startDate: weekStart, endDate: weekEnd },
+});
+```
+
+**规则**：
+1. 所有 advice 生成（日/周/月）必须通过 `fetchAdviceInputData()` 拿历史 meal/body 数据，**禁止业务层直接 query `meals.ai_raw_json`** 然后喂给 AI
+2. **禁止任何地方写 `.lte('ate_at', dateString)` 或 `ate_at::date = dateString`** —— 一律走 `periodUtcRange` 转半开区间 `[startUtc, endExclusiveUtc)`
+3. 3 天未录提醒（§4.5）的"max(measured_at)"也用 timestamptz 直接比较，没有 date 字符串混用问题
 
 ### 5.6 模型选择
 
@@ -936,14 +1603,14 @@ export async function fetchAdviceInputData(userId: string, periodStart: string, 
 **修订后路径：**
 
 #### Phase 1（今日 → 6/15+ 验证期）
-- **AI_PRIMARY_PROVIDER=anthropic_api**
+- `lib/ai-provider/config.ts`：`AI_PRIMARY_PROVIDER = 'anthropic_api'`，`AI_FALLBACK_PROVIDER = null`
 - Anthropic Messages API + Sonnet 4.6 vision
 - 月成本约 $2，预算可控
-- 抽象层保留，但**不实现 Sandbox provider**
+- 抽象层保留，但**不实现 Sandbox provider**（即使 Phase 1 只有单 provider，前端仍按 §4.x 显示 provider 名 + 耗时，确保 Phase 3 切换无 UI 工作）
 
 #### Phase 2 POC（6/15 当天起，预计 2-4 周）
 
-POC endpoint：`/api/dev/sandbox-probe` (env-gated)，验证：
+POC endpoint：`/api/dev/sandbox-probe`，**鉴权**：header `x-dev-secret === DEV_SECRET`（与 `/api/dev/export` 同套路；不走 middleware owner 校验，因为 dev 工具）。验证：
 
 | 项 | 通过标准 |
 |---|---|
@@ -960,39 +1627,86 @@ PWA → Vercel API route → Sandbox.create({ source: snapshot }) → Agent SDK 
 **Snapshot 必须预装依赖**（不允许 per-request `npm install`，否则冷启动 5-10 分钟不可接受）。
 
 #### Phase 3（POC 通过后）
-- **AI_PRIMARY_PROVIDER=claude_agent_sdk**
-- **AI_FALLBACK_PROVIDER=anthropic_api**
+- `lib/ai-provider/config.ts`：`AI_PRIMARY_PROVIDER = 'claude_agent_sdk'`，`AI_FALLBACK_PROVIDER = 'anthropic_api'`
 - 主路径走 Sandbox + Max credit（$200/月池），月成本 **$0**
-- fallback 触发条件（任一）：auth 失败 / timeout / sandbox 创建失败 / 无效 JSON / 5xx
-- 触发时：自动切 API key + 写 inbox `provider_fallback` + Sentry 告警
-- fallback 月预算硬上限 **$5**，超过时停 cron 类非交互调用、保留用户主动触发的拍餐 / 日建议
+- fallback 触发条件（详见 §5.7.2 分类表）：任一 fallback-eligible `AIError`（`transport` / `auth_oauth` / `schema_invalid`；数值越界归 `schema_invalid`）；其中 transport / 5xx / sandbox 创建失败 由 Sandbox provider 内部 `maxTransportAttempts=3` 尝试耗尽后抛出
+- 触发动作：本次调用透明切到 `anthropic_api` 继续完成（用户无感）；**不写 inbox、不告警**（避免代码层错误污染通知，详见 §13）；只在 `app_private.app_errors` 写一条 `kind='provider_fallback'` 给维护者面板 `/admin/debug` 看
+- fallback 月成本**近似硬上限 ≈ $5**（reserve gate；最坏单次实际 > 预估时可少量越界几 cents）：实现要点（DDL / RPC 见 §7.3.1）：
+  - 与 daily budget 同套路：用 `ai_budget_monthly_fallback` 单行计数器（`(user_id, month)` PK）+ `FOR UPDATE` 串行化，**不允许用"读 SUM 当场判断"**（race 会绕过 reserve gate）
+  - 判定用 `current_month_cost + pre_estimate_current_call <= 500 cents`；reserve 通过后即放行调用，settle 时按实际成本回填差额（同 daily）。这是 reserve gate，不是合规级 hard cap：实际超出受 `PRE_ESTIMATES_CENTS` 保守度限制（最坏单次几 cents 偏差，远小于 $5 边界）
+  - cron 类非交互调用 reserve 拒绝时直接 fail-fast；用户主动触发（拍餐 / 日建议）跳过 cap 检查，永远尝试 fallback
+  - "cron / user / admin" 判定靠 provider 调用上下文 `ctx.trigger` 字段（具体签名见 §5.5.1 调用元数据）
 
-### 5.7.1 环境变量
+### 5.7.1 环境变量 + 代码常量职责分离
+
+**走哪个 provider** 不放 env，靠 `lib/ai-provider/config.ts` 代码常量（§5.3）；env 只承载部署期注入的值（secrets + 资源 id），详见 §6.8。
 
 ```bash
-# Phase 1
-AI_PRIMARY_PROVIDER=anthropic_api
+# Phase 1（只需）
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Phase 3（POC 通过后追加）
-AI_PRIMARY_PROVIDER=claude_agent_sdk
-AI_FALLBACK_PROVIDER=anthropic_api
+# Phase 3（追加；ANTHROPIC_API_KEY 继续保留作 fallback）
 CLAUDE_AGENT_SNAPSHOT_ID=snap_xxx          # Vercel Sandbox snapshot ID
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...   # 本地 `claude setup-token` 生成的 1 年 token
 ```
 
+切换路径见 §5.3 工厂模式：改 `config.ts` 两行常量 + commit + redeploy。
+
 ### 5.7.2 Provider 必须遵守
 
-- **硬超时**：交互式拍餐 30s target / 45s max；cron advice jobs 120s max
+- **不在应用层加 timeout，但 Vercel Function 有硬上限**：v1 应用层不设强制 timeout（单用户自用，宁可等一会儿也不要中途 kill 浪费 cost），但 Vercel Function 的 `maxDuration` 是不可绕过的平台限制：
+  - Hobby plan：默认 10s，**最高 60s**（必须 `export const maxDuration = 60` 显式开启）
+  - Pro plan：默认 15s，最高 300s（fluid）
+  - **AI 调用 route 必须显式声明**：`/api/meals/extract`、`/api/body/extract`、`/api/advice/daily` 三个用户主动入口配 `maxDuration = 60`（Hobby 顶配）；`/api/cron/catchup` 配同样 60s 但建议升 Pro（300s）以 cover 多个 advice 串行生成
+  - **超时表现**：Vercel 端 504，前端表现 fetch 异常；provider method 内 fetch 没机会 catch（被强 kill）→ ai_calls 行可能停在 `status='started'` 永不更新（**约定**：维护者面板每天扫一次 `started_at > 5min ago AND status='started'` 的脏行，标 `status='failed', error_code='vercel_timeout'`）
+  - **前端 abort**：用户在 elapsed > 20s 时主动取消 → AbortController → fetch 中止；后端 provider method 内 catch AbortError → 抛 `AIError('cancelled')`（§5.7.2 分类表："cancelled" 不写 app_errors，不 fallback）
+- **无熔断（circuit breaker）**：v1 单用户量级不需要；fallback 已经是降级路径
 - **结构化 JSON 校验**：返回业务层前必须过 Zod schema
 - `sandbox.stop()` 在 `finally` 中清理
 - **切换 provider 不改业务层**：抽象在 `lib/ai-provider/`
 - **fallback 是单层 try-catch**，不是通用 multi-provider framework
 
+#### Fallback 触发分类表
+
+`withFallback(primary, fallback)` 仅对 primary 抛出的下列 AIError category 切 fallback；其他错误（如 budget 拒绝、CSRF）直接抛给业务层。
+
+| AIError category | 触发场景 | 是否 fallback | 备注 |
+|---|---|---|---|
+| `transport` | 5xx / 网络 / Sandbox 创建失败 | ✅ | provider 内 callWithRetry 耗尽 `maxTransportAttempts` 后抛 |
+| `auth_oauth` | Sandbox 路径 OAuth 401 / token revoked | ✅ | Sandbox provider 专属，立即抛不重试（重试无意义） |
+| `schema_invalid` | Zod 校验失败 + schema_retry 耗尽，**含数值越界（§5.5.2 assertInRange 一并抛此 category）** | ✅ | 给 fallback 一次机会（不同 model 可能返回更规范的 JSON / 不越界的数值） |
+| `rate_limit` | reserveAiBudget 返 false / Anthropic 429 | ❌ | 直接报错，让用户看到"今日预算已用完"；fallback 也无意义 |
+| `fallback_cap_cron_skip` | 月度 fallback $5 cap + trigger='cron' | ❌ | `withFallback` 在切 fallback 前查 cap，cron 触发直接抛此 category；写 app_errors 不打扰 |
+| `cancelled` | 调用方主动取消 | ❌ | 不切 fallback |
+| `unknown` | 未分类 | ❌ | 保守不切 fallback，写 `app_errors` 让维护者排查 |
+
+**为什么 sanity 越界归 `schema_invalid` 而不另立 category**：§5.5.2 `assertInRange` 实际抛 `AIError('schema_invalid')`（spec 既有），而不是单独的 `sanity_out_of_range`。R2 这里跟 §5.5.2 实现对齐，不另立类别（重复列会让分类表和实际抛错错位）。
+
+**Sandbox provider 的 transport retry 配置**：`maxTransportAttempts = 3`（API provider 默认 4），3 次都失败抛 `AIError('transport')` 由 `withFallback` catch 切到 `anthropic_api`。理由：Sandbox 单次更慢且外层还有 fallback，少试一次合理。
+
+#### AIError category → app_errors.kind 映射
+
+`AIError.category` 是抛错时的语义分类；`app_errors.kind` 是日志归类。两者**不是 1:1 相同名**，由 `withFallback` 决定写哪个 kind：
+
+| 触发场景 | AIError.category（最终抛出） | 写 app_errors.kind | 谁写 |
+|---|---|---|---|
+| primary 抛 fallback-eligible，进 fallback | （由 fallback 结果决定，可能成功无 throw） | `provider_fallback` | `withFallback` 进 fallback 前 |
+| primary 抛 `auth_oauth`（Sandbox OAuth 失效），进 fallback | 同上 | `oauth_token_expired`（特殊高亮） | `withFallback` 进 fallback 前 |
+| cron 路径 fallback monthly cap 拒绝 | `fallback_cap_cron_skip` | `fallback_cap_cron_skip` | `withFallback` cap 拒绝时 |
+| Daily budget 拒绝 | `rate_limit` | （**不写** app_errors，频繁拒绝由 daily budget 状态面板看，不污染错误日志） | — |
+| Anthropic 429 retry 耗尽 | `rate_limit` | `ai_call`（context 标 reason=rate_limit） | provider 内 finishAiCall + 一行 app_errors |
+| 通用 5xx / 网络（attempts 耗尽，无 fallback 或 fallback 也失败） | `transport` | `ai_call` | provider 或 withFallback |
+| schema_invalid / sanity（fallback 也失败） | `schema_invalid` | `ai_call` | provider |
+| `unknown` 类 | `unknown` | `ai_call`（context 标 reason=unknown） | provider |
+| 用户主动取消 | `cancelled` | （**不写** app_errors，用户取消不是错误，不污染日志） | — |
+
+**关键约定**：业务层 / 前端永远 catch `AIError`（按 category 决定 UI）；维护者面板永远查 `app_errors.kind`（按归类聚合）。两者分工不重叠。
+
 ### 5.7.3 Token 续期流程
 
 OAuth token 失效 / 撤销时：
-- 软件自动 fallback API key（不停机）+ 写 inbox `oauth_token_expired`
+- 软件自动 fallback API key（不停机，触发 §5.7.2 `auth_oauth` fallback 路径）
+- 在 `app_private.app_errors` 写一条 `kind='oauth_token_expired'`（不写 inbox：代码层错误不打扰用户，由 `/admin/debug` 面板巡检发现）
 - 用户在任意能跑 Claude CLI 的机器（**Mac / 临时 Linux VM**）跑 `claude setup-token`
 - 复制新 token 推到 Vercel env var → 触发部署
 - **Mac 不是运行时依赖**，只是低频维护工具（约 1 年一次）
@@ -1015,7 +1729,11 @@ OAuth token 失效 / 撤销时：
 ```ts
 // middleware.ts
 const PUBLIC_PATHS = ['/login', '/auth/callback', '/manifest.json', '/sw.js',
-                       '/favicon.ico', '/icons/', '/api/cron', '/api/push/manifest'];
+                       '/favicon.ico', '/icons/', '/api/cron', '/api/push/manifest',
+                       // POC 工具靠 DEV_SECRET 自鉴权，不走 middleware ALLOWED_USER_ID 校验
+                       '/api/dev/sandbox-probe'];
+// 注意：'/admin/debug' 和 '/api/dev/export' 都仍走 middleware（必须是 owner），
+// 进入后再各自做 DEV_SECRET 第二道校验（双层鉴权防 secret 单点泄露）
 
 export async function middleware(req: NextRequest) {
   // 公开路径直接放行
@@ -1079,15 +1797,21 @@ export function assertSameOrigin(req: Request) {
 -- 每张用户表都启用 RLS
 alter table public.meals enable row level security;
 
--- 第一层：self policy（每行限 self）
+-- 第一层：self policy（每行限 self；显式 TO authenticated + null check 防 anon 误命中）
+-- Supabase 官方推荐写法（参考 https://supabase.com/docs/guides/database/postgres/row-level-security）：
+-- 1) 必须显式 `to authenticated`（不写默认 PUBLIC，包含 anon role）
+-- 2) `(select auth.uid())` 比 `auth.uid()` 性能更好（Postgres 可缓存常量结果）
+-- 3) 显式 `is not null` 防 anon 客户端 (auth.uid()=null) 在 `null = user_id` 路径上意外通过
 create policy meals_self on public.meals
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for all to authenticated
+  using ((select auth.uid()) is not null and (select auth.uid()) = user_id)
+  with check ((select auth.uid()) is not null and (select auth.uid()) = user_id);
 
 -- 第二层：restrictive owner policy（硬绑 app_private.owner_user_id()）
 create policy meals_owner_only on public.meals
   as restrictive for all to authenticated
-  using (auth.uid() = app_private.owner_user_id())
-  with check (auth.uid() = app_private.owner_user_id());
+  using ((select auth.uid()) is not null and (select auth.uid()) = app_private.owner_user_id())
+  with check ((select auth.uid()) is not null and (select auth.uid()) = app_private.owner_user_id());
 ```
 
 **适用表**：`meals` / `workout_days` / `body_metrics` / `advice` / `inbox` / `push_subscriptions` / `notification_deliveries` / `profiles` 都加这两条 policy。
@@ -1116,7 +1840,40 @@ SUPABASE_SECRET_KEY_CRON=sb_secret_...    # 仅 cron 用
 
 新项目直接用 `sb_secret_...`（已 GA）。多个 key 都是 service_role 等级，**只有泄露隔离**。
 
+#### Admin client 隔离规范（必须遵守）
+
+`supabaseAdmin`（service_role 等级）和用户 session client（`createServerClient` + cookie）是**两个互不相通的实例**，绝不能复用同一个 client 又传 user token：
+
+```ts
+// lib/supabase/admin.ts —— 唯一的 admin client 工厂
+import { createClient } from '@supabase/supabase-js';
+
+export function createAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY_ADMIN!,
+    {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+      global: { headers: {} },  // 绝不传 user Authorization / Cookie header
+    }
+  );
+}
+
+// 单例（避免每个请求都新建）
+export const supabaseAdmin = createAdminClient();
+```
+
+**硬规则**：
+
+- **只能在 server-side 用**（API routes / Server Components / cron handlers）；client component / browser bundle 必须能 import 报错。建议加 ESLint rule 或 import 时校验 `typeof window === 'undefined'`
+- **绝不混 user session**：不能给 admin client 加 user 的 cookies / Authorization header；若需"先以 owner 身份鉴权再以 admin 写表"，写**两个 client 分别用**（owner client 校验 session → admin client 写表）
+- **cron 路径用 `SUPABASE_SECRET_KEY_CRON`** 而不是 ADMIN，泄露隔离方便排查（实例化一个 `supabaseCron`）
+- **测试环境也用 createAdminClient**，禁止单测 patch 全局 client
+- **rationale**：Supabase service_role 设计上 bypass RLS；但若 client 同时带 user JWT，PostgREST 会以 user 身份执行而非 service role，**意外按 RLS 限制**，这是个易踩的隐患
+
 ### 6.8 完整环境变量清单
+
+env 只承载**部署期注入的值**（secrets + 不可预测的资源 id）：API key / OAuth token / Vercel Sandbox snapshot id（部署生成）等。**走哪个 provider 由 `lib/ai-provider/config.ts` 代码常量决定**，不放 env。
 
 ```bash
 # Supabase
@@ -1125,28 +1882,36 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SECRET_KEY_ADMIN=
 SUPABASE_SECRET_KEY_CRON=
 
-# Anthropic
-ANTHROPIC_API_KEY=
-AI_PROVIDER=api-key          # 或 agent-sdk
-CLAUDE_OAUTH_TOKEN=          # Phase 2 用
+# Anthropic（Phase 1 必填；Phase 3 仍作为 fallback 保留）
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Vercel Sandbox + Agent SDK（Phase 3 启用后追加；Phase 1 留空）
+CLAUDE_AGENT_SNAPSHOT_ID=                 # snap_xxx，预装 @anthropic-ai/claude-agent-sdk + claude CLI
+CLAUDE_CODE_OAUTH_TOKEN=                  # 本地 `claude setup-token` 生成，1 年有效
 
 # 单用户锁
-ALLOWED_USER_ID=             # 注册完后从 Supabase 拿
+ALLOWED_USER_ID=                          # 注册完后从 Supabase 拿
 
 # 站点
 NEXT_PUBLIC_SITE_URL=https://food-food.vercel.app
 
 # Cron
-CRON_SECRET=                 # Vercel 自动注入
+CRON_SECRET=                              # Vercel 自动注入
 
 # Web Push
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=mailto:你的邮箱
 
-# Dev / POC
-DEV_SECRET=
+# Dev / POC / Debug 面板
+DEV_SECRET=                               # /api/dev/export / /api/dev/sandbox-probe / /admin/debug 共用校验 secret
 ```
+
+**已废弃的 env（不再使用）**：
+
+- `AI_PROVIDER` —— 已被 `lib/ai-provider/config.ts:AI_PRIMARY_PROVIDER` 代码常量取代
+- `CLAUDE_OAUTH_TOKEN` —— 已重命名为 `CLAUDE_CODE_OAUTH_TOKEN`（与 `claude setup-token` 官方输出一致）
+- 任何 `AI_SANDBOX_ENABLE_*` 类按业务路由的 env —— 不存在，所有业务统一走同一 provider
 
 ---
 
@@ -1154,24 +1919,34 @@ DEV_SECRET=
 
 ### 7.1 失败矩阵
 
-| 环节 | 失败场景 | 默认行为 | 用户可见 |
-|---|---|---|---|
-| AI 拍餐识别 | 网络/限流/AI 乱码 | 弹"AI 不可用，转手动" → 手动表单 | 友好提示 + 表单 |
-| AI 体重截图识别 | 同上 | 同上，转手动填体重 | 同上 |
-| AI 日建议 | 同上 | 红字错误 + 重试按钮 | 红字 |
-| AI 周/月建议（cron） | 同上 | cron_runs.status=failed，下次 catchup 补跑 | 下次正常 |
-| AI Schema 校验失败 | JSON 不合 Zod | retry 1 次带 schema 提示，仍失败抛错 | 转手动 |
-| Web Push 410/404 | 订阅失效 | 删该订阅 | 用户重新订阅 |
-| Web Push 401/403 | VAPID 配置错 | 记日志，不盲删 | 维护者看日志 |
-| Web Push 429/5xx | 推送服务限流 | 短重试 1 次（同函数内），仍失败 inbox 兜底 | inbox 仍存在 |
-| Supabase 整库挂 | 平台故障 | 全 App "服务暂时不可用" | 友好 placeholder |
-| Cron 加锁失败 | 并发触发 | 204，让另一个实例做 | 用户无感 |
-| Cron 已 finished | 重复触发同 period | 跳过 | 用户无感 |
-| CSRF 校验失败 | Origin 不对 | 403 | 登出重登 |
-| Auth 过期 | session 失效 | redirect /login | 重登 |
-| 客户端离线 | PWA 无网 | 写操作存 IndexedDB 草稿 | "已暂存本机" |
-| 图片压缩后过大 | 客户端检查 | 客户端拒绝 | "照片太大" |
-| 达 AI budget 上限 | 自家代码 bug 烧钱 | 抛错不写半截 | "今日配额已用完" |
+约定：所有 AI 相关行先经过 `withFallback`（Phase 3）；Phase 1 单 provider 时同样列代表"primary 失败"的行为。下表"Primary 失败 → 是否 fallback" 列与 §5.7.2 fallback 分类表对齐。
+
+| 环节 | 失败场景 | Primary 失败 → 是否 fallback | 最终失败行为 | 用户可见 |
+|---|---|---|---|---|
+| AI 拍餐识别 | 网络 / 5xx / Sandbox 启动失败 | ✅ transport | 两边都失败 → 弹"AI 不可用，转手动" → 手动表单 | 友好提示 + 表单 |
+| AI 拍餐识别 | OAuth 401（Sandbox） | ✅ auth_oauth | fallback 通常成功；仍失败转手动 | 同上 |
+| AI 拍餐识别 | JSON 不合 Zod / 数值越界 | ✅ schema_invalid（数值越界一并归此） | provider 内 1 次 schema retry → 抛错；fallback 重试一次；仍失败转手动 | 同上 |
+| AI 体重截图识别 | 同上 | 同上 | 同上，转手动填体重 | 同上 |
+| AI 日建议 | 同上 | 同上 | 两边都失败 → 红字错误 + 重试按钮 | 红字 |
+| AI 周/月建议（cron） | 同上 | 同上 | `cron_runs.status=failed`，下次 catchup 补跑 | 下次正常 |
+| Daily AI budget 拒绝 | reserveAiBudget 返 false | ❌ rate_limit | 直接抛 `AIError('rate_limit')`，不切 fallback | "今日 AI 预算已用完" |
+| Fallback monthly $5 cap 拒绝 · cron | primary 已抛 fallback-eligible error，但 monthly_fallback 预算耗尽 | 不走 fallback（语义上是 cron-skip，不是 rate_limit） | `withFallback` 收到 primary error 后查 monthly cap，超限则 fail-fast 抛 `AIError('fallback_cap_cron_skip')`；写 app_errors；不打扰 | 用户无感（cron） |
+| Fallback monthly $5 cap · user | trigger='user' 时 cap 不强制 | 仍走 fallback（用户主动操作不静默；无状态位） | `withFallback` 看到 trigger='user' 时**完全不查 cap**直接进 fallback；普通 fallback 路径已经会写 `kind='provider_fallback'` 到 app_errors，不再额外区分"是否超 cap" | 与正常 fallback 一致（chip 显示 `fallback from ...`） |
+| Web Push 410/404 | 订阅失效 | — | 删该订阅 | 用户重新订阅 |
+| Web Push 401/403 | VAPID 配置错 | — | 记日志，不盲删 | 维护者看日志 |
+| Web Push 429/5xx | 推送服务限流 | — | 短重试 1 次（同函数内），仍失败 inbox 兜底 | inbox 仍存在 |
+| Supabase 整库挂 | 平台故障 | — | 全 App "服务暂时不可用" | 友好 placeholder |
+| Cron 加锁失败 | 并发触发 | — | 204，让另一个实例做 | 用户无感 |
+| Cron 已 finished | 重复触发同 period | — | 跳过 | 用户无感 |
+| CSRF 校验失败 | Origin 不对 | — | 403 | 登出重登 |
+| Auth 过期 | session 失效 | — | redirect /login | 重登 |
+| 客户端离线 | PWA 无网 | — | 写操作存 IndexedDB 草稿 | "已暂存本机" |
+| 图片压缩后过大 | 客户端检查 | — | 客户端拒绝 | "照片太大" |
+
+**关键约定**：
+- "AI 不可用，转手动" 的判定 = "primary 抛错且 fallback 也抛错（Phase 3）" 或 "primary 抛错（Phase 1，无 fallback）"。前端不能仅凭 primary 失败就转手动，要等 provider 调用最终 reject。
+- schema_invalid 在 provider 内 retry 1 次后才抛错；不在 §7.1 重复 retry（避免与 §5.4 重叠）。`withFallback` 拿到 `schema_invalid` 后只**切 fallback 一次**，不在 fallback 链上再 retry。
+- **fallback 自己也抛错时的最终 reject**：`withFallback` 抛 fallback provider 的 `AIError`（fallback 的错才是用户看到的最后一道）；同时 `cause` 字段挂 primary 的 `AIError`，便于 `/admin/debug` 同时查两段调用历史。primary 错误**不丢**，作为 cause 链。
 
 ### 7.2 错误日志（脱敏）
 
@@ -1238,10 +2013,13 @@ grant select on app_private.app_config to service_role;
 
 -- 核心 RPC：原子预约
 -- p_estimated_cost_cents = 调用前对本次成本的乐观估算（前端 / provider 算）
+-- 返回 (ok, usage_date)：业务层把 usage_date 带回去 settle，避免跨日边界错账
 create or replace function app_private.try_reserve_ai_budget(
   p_user_id uuid,
-  p_estimated_cost_cents int
-) returns boolean language plpgsql security definer set search_path = app_private as $$
+  p_estimated_cost_cents int,
+  out ok boolean,
+  out usage_date date
+) language plpgsql security definer set search_path = app_private as $$
 declare
   today_utc date := (now() at time zone 'UTC')::date;
   call_cap int;
@@ -1252,6 +2030,12 @@ begin
   select (value::text)::int into call_cap from app_config where key = 'ai_budget_daily_call_cap';
   select (value::text)::int into cost_cap from app_config where key = 'ai_budget_daily_cost_cap_cents';
 
+  -- fail-closed：app_config 缺 seed / value null 时直接抛错，绝不放行
+  -- 防 PL/pgSQL null 比较不进 if 分支变成"无 cap"放行的隐患
+  if call_cap is null or cost_cap is null then
+    raise exception 'ai_budget_daily caps not configured (seed app_config first)';
+  end if;
+
   -- upsert + FOR UPDATE 串行化同一 (user, day) 的 budget 访问
   insert into ai_budget_daily(user_id, usage_date) values (p_user_id, today_utc)
     on conflict (user_id, usage_date) do nothing;
@@ -1261,8 +2045,8 @@ begin
     where user_id = p_user_id and usage_date = today_utc
     for update;
 
-  if row_call_count + 1 > call_cap then return false; end if;
-  if row_cost + p_estimated_cost_cents > cost_cap then return false; end if;
+  if row_call_count + 1 > call_cap then ok := false; usage_date := today_utc; return; end if;
+  if row_cost + p_estimated_cost_cents > cost_cap then ok := false; usage_date := today_utc; return; end if;
 
   update ai_budget_daily
     set call_count = call_count + 1,
@@ -1270,59 +2054,69 @@ begin
         updated_at = now()
     where user_id = p_user_id and usage_date = today_utc;
 
-  return true;
+  ok := true; usage_date := today_utc;
 end; $$;
 
 grant execute on function app_private.try_reserve_ai_budget(uuid, int) to service_role;
 
 -- 调用完成后 settle 实际成本（与预约值的差异回填）
+-- 重要：settle 必须传入 reserve 时的 usage_date（不是 now()），否则跨 UTC 日边界时会更新错日期的账本
 create or replace function app_private.settle_ai_budget(
   p_user_id uuid,
+  p_usage_date date,             -- reserve 时确定的日期，调用方负责传入
   p_estimated_cost_cents int,    -- 预约时报的值
   p_actual_cost_cents int        -- 实际成本（succeeded 时）或 0（failed 时）
 ) returns void language plpgsql security definer set search_path = app_private as $$
 declare
-  today_utc date := (now() at time zone 'UTC')::date;
   delta int := p_actual_cost_cents - p_estimated_cost_cents;
 begin
   update ai_budget_daily
     set estimated_cost_cents = greatest(0, estimated_cost_cents + delta),
         updated_at = now()
-    where user_id = p_user_id and usage_date = today_utc;
+    where user_id = p_user_id and usage_date = p_usage_date;
 end; $$;
 
-grant execute on function app_private.settle_ai_budget(uuid, int, int) to service_role;
+grant execute on function app_private.settle_ai_budget(uuid, date, int, int) to service_role;
 ```
+
+**调用方契约**：`reserveAiBudget` 返回 reserve 成功时的 `usage_date`（即 RPC 内部算的 today_utc）给业务层，业务层在 `settleAiBudget` 时传回。修订 helper：
 
 ```ts
 // lib/ai-provider/budget.ts
-const PRE_ESTIMATES_CENTS: Record<AiCallKind, number> = {
-  meal_photo: 2,
-  body_ocr: 2,
-  daily_advice: 3,
-  weekly_advice: 8,
-  monthly_advice: 20,
-};
-
-export async function reserveAiBudget(userId: string, kind: AiCallKind): Promise<void> {
+// reserve 返 { usageDate }（来自 RPC OUT 参数）；business 层把 usageDate 带回去 settle。失败时抛 AIError
+// Supabase RPC 用 OUT 参数时返回形态是 record { ok, usage_date }（PostgREST 单行展开为对象）
+export async function reserveAiBudget(userId: string, kind: AiCallKind): Promise<{ usageDate: string }> {
   const preEstimate = PRE_ESTIMATES_CENTS[kind];
-  const { data: ok, error } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .schema('app_private')
     .rpc('try_reserve_ai_budget', { p_user_id: userId, p_estimated_cost_cents: preEstimate });
   if (error) throw error;
-  if (!ok) throw new AIError('rate_limit', false, '今日 AI 预算已用完');
+  const row = data as { ok: boolean; usage_date: string } | null;
+  if (!row?.ok) throw new AIError('rate_limit', false, '今日 AI 预算已用完');
+  return { usageDate: row.usage_date };
 }
 
-export async function settleAiBudget(userId: string, kind: AiCallKind, actualCents: number): Promise<void> {
+export async function settleAiBudget(userId: string, kind: AiCallKind, usageDate: string, actualCents: number): Promise<void> {
   await supabaseAdmin.schema('app_private').rpc('settle_ai_budget', {
-    p_user_id: userId,
-    p_estimated_cost_cents: PRE_ESTIMATES_CENTS[kind],
-    p_actual_cost_cents: actualCents,
+    p_user_id: userId, p_usage_date: usageDate,
+    p_estimated_cost_cents: PRE_ESTIMATES_CENTS[kind], p_actual_cost_cents: actualCents,
   });
 }
 ```
 
-**调用顺序**：API route 入口 → `reserveAiBudget(userId, kind)` → provider 内部 `startAiCall` 写 ai_calls 记录 → 真实调用 → `finishAiCall` + `settleAiBudget(userId, kind, actualCents)`。
+**调用顺序**：API route 入口 → `const { usageDate } = await reserveAiBudget(userId, kind)` → 把 `usageDate` 通过 `CallContext` 传给 provider → provider 内部 `startAiCall` 写 ai_calls → 真实调用 → `finishAiCall` + provider 在 `finally` 里 `settleAiBudget(userId, kind, ctx.usageDate, actualCents)`。
+
+**`CallContext` 在 R3 扩展加 `usageDate`**（与 §5.5.1 互补）：
+
+```ts
+export interface CallContext {
+  userId: string;
+  trigger: CallTrigger;
+  correlationId: string;
+  kind: AiCallKind;
+  usageDate: string;             // R3 加：API route 从 reserveAiBudget 拿到的 utc date，settle 时回传
+}
+```
 
 **预算语义**：
 - "预约"乐观估算入账，调用完后按实际成本 settle 修正
@@ -1331,8 +2125,140 @@ export async function settleAiBudget(userId: string, kind: AiCallKind, actualCen
 - **`call_count` 故意不在 settle 时回退**：一次 reserve = 一次"调用尝试"占用配额；这样防 retry 风暴吃光预算（失败 retry 仍计配额，会逼用户停下排查）。如果想"每天 50 次成功调用"语义，可以把 cap 加大到 60-70 留容错
 
 **Daily cap 默认**（写入 `app_private.app_config`）：
-- 50 次/天
+- 50 次/天（**硬保险**：单用户 ~40 次/月，正常永远不会到；触发 = 自家代码 bug 烧钱，立即停手排查）
 - 50 cents/天（§9 估月成本 ~$2 = 日均 6-7 cents，留 5-7x 余量；超 50 cents 必定是 bug）
+
+**`AiCallKind` 与 ai_calls.kind 对齐**：
+
+```ts
+export type AiCallKind = 'meal_photo' | 'body_ocr' | 'initial_targets' | 'daily_advice' | 'weekly_advice' | 'monthly_advice';
+
+const PRE_ESTIMATES_CENTS: Record<AiCallKind, number> = {
+  meal_photo: 2,
+  body_ocr: 2,
+  initial_targets: 3,    // 一次性；保守预估（实际可能 1-2 cents，多给保险）
+  daily_advice: 3,
+  weekly_advice: 8,
+  monthly_advice: 20,
+};
+```
+
+#### 7.3.1 Fallback monthly $5 cap（R2 §5.7 引入，R3 兑现）
+
+只在 Phase 3 启用（`AI_FALLBACK_PROVIDER !== null`）。Phase 1 无 fallback 不参与。
+
+```sql
+-- 每月 fallback 预算账本（单行 per user/month）
+create table app_private.ai_budget_monthly_fallback (
+  user_id uuid not null,
+  usage_month date not null,    -- 每月 1 号（UTC），唯一性按月
+  estimated_cost_cents int not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, usage_month)
+);
+revoke all on app_private.ai_budget_monthly_fallback from public, anon, authenticated;
+grant select, insert, update on app_private.ai_budget_monthly_fallback to service_role;
+
+-- 月度 cap 默认 500 cents（=$5），写 app_config
+insert into app_private.app_config (key, value) values
+  ('ai_budget_monthly_fallback_cap_cents', '500'::jsonb)
+on conflict (key) do nothing;
+
+-- 核心 RPC：try_reserve_fallback_monthly_cap
+-- 仅当 trigger='cron' 时由 withFallback 调用；user trigger 跳过此检查（§7.1 user 行）
+-- 返回 (ok, usage_month)：业务层把 usage_month 带回去 settle，避免跨月边界错账
+create or replace function app_private.try_reserve_fallback_monthly_cap(
+  p_user_id uuid,
+  p_estimated_cost_cents int,
+  out ok boolean,
+  out usage_month date
+) language plpgsql security definer set search_path = app_private as $$
+declare
+  current_month date := date_trunc('month', (now() at time zone 'UTC')::date)::date;
+  cap int;
+  row_cost int;
+begin
+  select (value::text)::int into cap from app_config where key = 'ai_budget_monthly_fallback_cap_cents';
+
+  -- fail-closed：cap 未配置时直接抛错（与 daily 同套路）
+  if cap is null then
+    raise exception 'ai_budget_monthly_fallback_cap_cents not configured (seed app_config first)';
+  end if;
+
+  insert into ai_budget_monthly_fallback(user_id, usage_month) values (p_user_id, current_month)
+    on conflict (user_id, usage_month) do nothing;
+
+  select estimated_cost_cents into row_cost
+    from ai_budget_monthly_fallback
+    where user_id = p_user_id and usage_month = current_month
+    for update;
+
+  if row_cost + p_estimated_cost_cents > cap then ok := false; usage_month := current_month; return; end if;
+
+  update ai_budget_monthly_fallback
+    set estimated_cost_cents = estimated_cost_cents + p_estimated_cost_cents,
+        updated_at = now()
+    where user_id = p_user_id and usage_month = current_month;
+
+  ok := true; usage_month := current_month;
+end; $$;
+
+grant execute on function app_private.try_reserve_fallback_monthly_cap(uuid, int) to service_role;
+
+-- settle：fallback 调用结束后回填实际成本与预约差值（与 daily settle 同套路）
+-- 重要：settle 必须传入 reserve 时的 usage_month（不是 now()），跨月边界一致性
+create or replace function app_private.settle_fallback_monthly_cap(
+  p_user_id uuid,
+  p_usage_month date,            -- reserve 时确定的月份（每月 1 号 UTC），调用方负责传入
+  p_estimated_cost_cents int,
+  p_actual_cost_cents int
+) returns void language plpgsql security definer set search_path = app_private as $$
+declare
+  delta int := p_actual_cost_cents - p_estimated_cost_cents;
+begin
+  update ai_budget_monthly_fallback
+    set estimated_cost_cents = greatest(0, estimated_cost_cents + delta),
+        updated_at = now()
+    where user_id = p_user_id and usage_month = p_usage_month;
+end; $$;
+
+grant execute on function app_private.settle_fallback_monthly_cap(uuid, date, int, int) to service_role;
+```
+
+```ts
+// lib/ai-provider/budget.ts —— Fallback monthly cap helpers
+// 同 daily：RPC OUT 参数返 { ok, usage_month }，PostgREST 单行展开为对象
+export async function tryReserveFallbackMonthlyCap(userId: string, kind: AiCallKind): Promise<{ ok: boolean; usageMonth: string }> {
+  const preEstimate = PRE_ESTIMATES_CENTS[kind];
+  const { data, error } = await supabaseAdmin
+    .schema('app_private')
+    .rpc('try_reserve_fallback_monthly_cap', { p_user_id: userId, p_estimated_cost_cents: preEstimate });
+  if (error) throw error;
+  const row = data as { ok: boolean; usage_month: string };
+  return { ok: row.ok, usageMonth: row.usage_month };
+}
+
+export async function settleFallbackMonthlyCap(userId: string, kind: AiCallKind, usageMonth: string, actualCents: number): Promise<void> {
+  await supabaseAdmin.schema('app_private').rpc('settle_fallback_monthly_cap', {
+    p_user_id: userId, p_usage_month: usageMonth,
+    p_estimated_cost_cents: PRE_ESTIMATES_CENTS[kind], p_actual_cost_cents: actualCents,
+  });
+}
+```
+
+**costCents 语义**：真实付费 provider（`anthropic_api` / `claude_agent_sdk`）成功返回时 **MUST** 在 `_meta.costCents` 写实际成本；只有 `mock` 或失败路径允许 `undefined`。`withFallback` 用 `?? 0` 兜底等价于"reserve 全退"，不影响数学正确性，但生产付费成功省略 costCents 会让月度账本系统性低估，属于实现 bug。
+
+**`withFallback` 调用顺序**（与 §5.5.1 伪代码对齐）：
+
+1. primary 抛 fallback-eligible AIError
+2. `writeAppError({ kind: 'provider_fallback' | 'oauth_token_expired' })`（按 primary category 区分）
+3. 若 `ctx.trigger === 'cron'` → 调 `tryReserveFallbackMonthlyCap` 返 `{ ok, usageMonth }`：ok=false 抛 `fallback_cap_cron_skip`；ok=true 保存 `usageMonth` 继续
+4. **关键：第二次 daily reserve** — 调 `reserveAiBudget(ctx.userId, ctx.kind)` 返 `{ usageDate: fbUsageDate }`；失败时退已预约的 monthly cap（cron 路径）+ 挂 cause = primaryErr + 抛 `rate_limit`
+5. 构造 `fallbackCtx = { ...ctx, usageDate: fbUsageDate }`，调 `fallback.method(input, fallbackCtx)`（fallback provider 内部 finally 会用 `fallbackCtx.usageDate` settle daily budget）
+6. fallback 成功或失败：仅 cron 路径在 finally 调 `settleFallbackMonthlyCap(userId, kind, usageMonth, actualCents)`（actualCents 从 `fallback._meta.costCents` 取，失败/undefined 时按 0；user 路径未 reserve 无需 settle）
+7. throw fallback err with `cause = primaryErr` / return fallback result with `_meta.fallbackFrom = primary.providerName`
+
+**月成本"实时查 SUM"已废弃**：R1 codex 重要#5 指出读 SUM 在并发场景有 race；改用此 reserve/settle 套路与 daily budget 一致。
 
 ### 7.4 PWA 离线 / IndexedDB 草稿
 
@@ -1354,7 +2280,8 @@ type LocalDraft = {
   id: string;
   ownerUserId: string;
   type: 'meal' | 'body_metric';
-  payload: unknown;
+  payloadVersion: number;          // v1 = 1；schema 变更时递增。客户端版本和服务端不匹配 → 同步前先 migrate 或失败上报
+  payload: unknown;                // 形态由 payloadVersion 解释
   idempotencyKey: string;
   status: 'pending' | 'syncing' | 'failed' | 'synced';
   attempts: number;
@@ -1365,7 +2292,14 @@ type LocalDraft = {
 };
 ```
 
-服务端配套：`meals.client_mutation_id uuid` + UNIQUE `(user_id, client_mutation_id)`，POST 时带 `Idempotency-Key` header。
+**Draft 兼容策略**：
+
+- v1 仅写 `payloadVersion: 1`；syncDrafts 同步时严格校验 `payloadVersion === 1`，不匹配则标 `status='failed'`、`lastError='unsupported payload version'`，UI 提示用户重开 App
+- 未来 schema 变更：客户端先做 in-place migration（旧版本 → 新版本字段重写），同步时只发新版本
+- **绝不在服务端做"按版本宽容解析"**——服务端不维护多版本契约，单 source of truth 在前端 migrate
+- 单用户 v1 接受最坏情况：升级时极少数离线草稿丢失，UI 提示让用户手动重录
+
+服务端配套：`meals.client_mutation_id uuid` + UNIQUE `(user_id, client_mutation_id)`，POST 时带 `Idempotency-Key` header。body_metrics 同套（§3.2）。
 
 同步触发：`online` / `focus` / `visibilitychange` / 每 60 秒轮询。串行同步，失败重试上限 5 次。
 
@@ -1406,6 +2340,14 @@ function getLocalWindows(nowUtc: Date, timezone: string) {
 ```
 
 ### 7.7 advice stale 触发（DB trigger，**修订版用 row-level OLD/NEW 变量**）
+
+**安全约束（重要）**：`mark_advice_period_stale` / `mark_advice_stale_for_meal` 是 `security definer` 函数，**必须 revoke 给 PUBLIC/anon/authenticated 的 execute 权限**，否则任何登录用户可通过 Supabase PostgREST 的 RPC 入口直接调用 `mark_advice_period_stale(any_user_id, any_ts)` 把任意 user/period 的 advice 标 stale。
+
+实现选择 2 中之一：
+
+**A. 函数移到 `app_private` schema**（推荐，与 budget RPC 同套路）。trigger function 跨 schema 引用 `app_private.mark_advice_period_stale(...)`。`app_private` 的 default privileges 已经 revoke 所有非 service_role 角色，自动屏蔽。
+
+**B. 保留在 `public` 但显式 revoke**（更短但易遗忘）。下面给 B 的 DDL：
 
 ```sql
 -- helper：把单次 (user_id, ate_at) 触发的 weekly/monthly advice 标 stale
@@ -1459,6 +2401,75 @@ end; $$;
 create trigger meals_mark_advice_stale
   after insert or update or delete on public.meals
   for each row execute function public.mark_advice_stale_for_meal();
+
+-- ============ 扩展：workout_days / body_metrics / profile.targets 改动也标 stale ============
+-- advice context 不只 meals，还有 workout_days / body_metrics trend / profile.targets。
+-- 这些输入变化时 advice 也已过期，stale 触发必须覆盖全部输入。
+
+-- 1) workout_days（按 date 字段算 period）
+create or replace function public.mark_advice_stale_for_workout()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  r record := coalesce(new, old);
+  ts timestamptz;
+begin
+  ts := (r.date::timestamp at time zone (
+    select coalesce(preferred_timezone, 'Asia/Tokyo') from public.profiles where user_id = r.user_id
+  ));
+  perform mark_advice_period_stale(r.user_id, ts);
+  return coalesce(new, old);
+end; $$;
+revoke all on function public.mark_advice_stale_for_workout() from public, anon, authenticated;
+
+create trigger workout_days_mark_advice_stale
+  after insert or update or delete on public.workout_days
+  for each row execute function public.mark_advice_stale_for_workout();
+
+-- 2) body_metrics（按 measured_at 字段算 period）
+create or replace function public.mark_advice_stale_for_body()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  r record := coalesce(new, old);
+begin
+  perform mark_advice_period_stale(r.user_id, r.measured_at);
+  return coalesce(new, old);
+end; $$;
+revoke all on function public.mark_advice_stale_for_body() from public, anon, authenticated;
+
+create trigger body_metrics_mark_advice_stale
+  after insert or update or delete on public.body_metrics
+  for each row execute function public.mark_advice_stale_for_body();
+
+-- 3) profile.targets 改动（kcal_workout_day / kcal_rest_day / protein_g / carb_*_day / fat_g / fiber_g / targets_source 任一变）
+-- 影响范围更广：profile 的目标一改，当前周 + 当前月 advice 都该 stale
+create or replace function public.mark_advice_stale_for_profile()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  -- 只在 targets 相关字段变化时触发（避免普通 update 也刷 stale）
+  if (tg_op = 'UPDATE') and (
+    new.kcal_workout_day is distinct from old.kcal_workout_day or
+    new.kcal_rest_day is distinct from old.kcal_rest_day or
+    new.protein_g is distinct from old.protein_g or
+    new.carb_workout_day is distinct from old.carb_workout_day or
+    new.carb_rest_day is distinct from old.carb_rest_day or
+    new.fat_g is distinct from old.fat_g or
+    new.fiber_g is distinct from old.fiber_g
+  ) then
+    perform mark_advice_period_stale(new.user_id, now());
+  end if;
+  return coalesce(new, old);
+end; $$;
+revoke all on function public.mark_advice_stale_for_profile() from public, anon, authenticated;
+
+create trigger profiles_targets_mark_advice_stale
+  after update on public.profiles
+  for each row execute function public.mark_advice_stale_for_profile();
+
+-- **安全 revoke**：两个 security definer 函数都要 revoke execute，否则会被 RPC 调用
+-- CREATE FUNCTION 默认给 PUBLIC grant execute；下面把它收回，仅 service_role 保留（trigger 内部不需要 execute grant，PG 用 owner 权限执行）
+revoke all on function public.mark_advice_period_stale(uuid, timestamptz) from public, anon, authenticated;
+revoke all on function public.mark_advice_stale_for_meal() from public, anon, authenticated;
+-- 不给 service_role grant execute：trigger function 不应该被任何外部代码主动调用，纯 trigger 路径
 ```
 
 **为什么不用 statement-level + REFERENCING OLD/NEW TABLE**：row-level + helper 函数读起来更直接，单用户场景 update 量也小，没必要做 statement batch。
@@ -1472,18 +2483,24 @@ UI：stale advice 用琥珀色提示带"重新生成"按钮，不自动删旧 ad
 inbox upsert：
 
 ```ts
-await supabaseAdmin.from('inbox').upsert(
-  {
-    user_id: userId,
-    type: `${kind}_advice_ready`,
-    ref_id: `${kind}:${periodStart}`,
-    title: kind === 'weekly' ? '本周建议已生成' : '本月建议已生成',
-    // data.type 与 inbox.type 同名（§3.4 InboxData 类型契约），不是 advice.kind
-    data: { type: `${kind}_advice_ready`, adviceId, periodStart },
-  },
-  { onConflict: 'user_id,type,ref_id' },
-);
+// kind 仅接受 advice 周/月两类；daily advice 不写 inbox（§4.3 决策），其它 ai_calls.kind（meal_photo / body_ocr / initial_targets）也不写
+function ensureInboxForAdvice(adviceKind: 'weekly' | 'monthly', adviceId: string, userId: string, periodStart: string) {
+  const inboxType: InboxType = adviceKind === 'weekly' ? 'weekly_advice_ready' : 'monthly_advice_ready';
+  return supabaseAdmin.from('inbox').upsert(
+    {
+      user_id: userId,
+      type: inboxType,
+      ref_id: `${adviceKind}:${periodStart}`,
+      title: adviceKind === 'weekly' ? '本周建议已生成' : '本月建议已生成',
+      // data.type 与 inbox.type 同名（§3.4 InboxData 类型契约），不是 advice.kind
+      data: { type: inboxType, adviceId, periodStart },
+    },
+    { onConflict: 'user_id,type,ref_id' },
+  );
+}
 ```
+
+**契约**：`ensureInboxForAdvice` 的 `adviceKind` 类型签名限 `'weekly' | 'monthly'`，编译期就防住调 daily 或其他 ai_calls.kind 误传（如把 `ai_calls.kind='weekly_advice'` 拼成 `'weekly_advice_advice_ready'`）。
 
 push 去重（insert 抢 unique，失败说明已尝试过）：
 
@@ -1517,9 +2534,9 @@ if (error?.code === '23505') return { skipped: true, reason: 'already_attempted'
 |---|---|---|---|
 | 单测 | 时区计算 / Zod schema / CSRF / prompt snapshot / IndexedDB sync | 每次 PR | Vitest + jsdom + fake-indexeddb |
 | 集成测 | RLS 矩阵 / cron 幂等 / client_mutation_id / stale trigger / budget / cron lock | PR（路径触发）+ main + nightly | Vitest + Supabase Local |
-| E2E（4 条核心流） | 健身餐 / 拍餐 mock / advice + inbox / 离线草稿同步 | 每次 PR | Playwright (mock AI) |
+| E2E（5 条核心流） | 健身餐 / 拍餐 mock / daily advice / weekly advice + inbox / 离线草稿同步 | 每次 PR | Playwright (mock AI) |
 | AI 回归 | 范围 + must/must_not + 可选 LLM judge | **本地手动**（改 prompt 时） | 真实 Anthropic |
-| iOS PWA 实机 | 40 项 checklist | 上线前 | iPhone 真机 |
+| iOS PWA 实机 | 23 项 checklist（必测 15 + 应测 8） | 上线前 | iPhone 真机 |
 
 ### 8.2 RLS 测试矩阵
 
@@ -1534,27 +2551,105 @@ test('service_role 写入任意 user_id 后 owner client 读不到非自己');
 
 ### 8.3 MockAiProvider
 
-所有非 AI 回归测统一注入 mock（避免 CI 烧钱）：
+所有非 AI 回归测统一注入 mock（避免 CI 烧钱）。**必须实现 §5.2 全部 6 个 method 并使用 §5.5.1 新签名 `(input, ctx)`**，且要能模拟"主路径成功" + "故意抛错让 withFallback 触发" 两种行为，否则 R2 引入的 fallback 链路 / `_meta` 渲染 / `ctx.trigger` 分支都无法在集成测覆盖。
 
 ```ts
+export type MockBehavior =
+  | { kind: 'success' }
+  | { kind: 'throw'; category: AIErrorCategory; message?: string };
+
 export class MockAiProvider implements AiProvider {
-  calls = { estimateMeal: 0, generateWeeklyAdvice: 0, ... };
-  async estimateMealFromImage() { this.calls.estimateMeal++; return fixedEstimate; }
-  // ...
+  readonly providerName: ProviderName = 'mock';
+  // 调用计数（按 method 分桶）
+  calls = {
+    estimateMealFromImage: 0,
+    extractBodyMetrics: 0,
+    computeInitialTargets: 0,
+    generateDailyAdvice: 0,
+    generateWeeklyAdvice: 0,
+    generateMonthlyAdvice: 0,
+  };
+  // 行为脚本按 method 分桶：避免一个 setNextBehavior 影响错位的 method
+  // （单用户产品的集成测仍可能多 method 同序触发，全局队列容易脆）
+  private behaviors: Partial<Record<keyof MockAiProvider['calls'], MockBehavior[]>> = {};
+
+  setNextBehavior(method: keyof MockAiProvider['calls'], b: MockBehavior) {
+    (this.behaviors[method] ??= []).push(b);
+  }
+
+  private async invoke<T extends object>(method: keyof MockAiProvider['calls'], fixture: T, ctx: CallContext): Promise<T & { _meta: AiMeta }> {
+    this.calls[method]++;
+    const b = this.behaviors[method]?.shift() ?? { kind: 'success' as const };
+    if (b.kind === 'throw') throw new AIError(b.category, false, b.message ?? `mock-${b.category}`);
+    return { ...fixture, _meta: { provider: 'mock', durationMs: 1, attempts: 1 } } as any;
+  }
+
+  async estimateMealFromImage(input: { imageBase64: string }, ctx: CallContext) {
+    return this.invoke('estimateMealFromImage', FIXED_MEAL, ctx);
+  }
+  async extractBodyMetrics(input: { imageBase64: string }, ctx: CallContext) {
+    return this.invoke('extractBodyMetrics', FIXED_BODY, ctx);
+  }
+  async computeInitialTargets(input: ProfileInput, ctx: CallContext) {
+    return this.invoke('computeInitialTargets', FIXED_TARGETS, ctx);
+  }
+  async generateDailyAdvice(input: DailyContext, ctx: CallContext) {
+    return this.invoke('generateDailyAdvice', FIXED_DAILY_ADVICE, ctx);
+  }
+  async generateWeeklyAdvice(input: WeeklyContext, ctx: CallContext) {
+    return this.invoke('generateWeeklyAdvice', FIXED_WEEKLY_ADVICE, ctx);
+  }
+  async generateMonthlyAdvice(input: MonthlyContext, ctx: CallContext) {
+    return this.invoke('generateMonthlyAdvice', FIXED_MONTHLY_ADVICE, ctx);
+  }
 }
 ```
 
-`getAiProvider()` 看 `MOCK_AI=1` env var 切到 mock。
+`getAiProvider()` 看 `process.env.NODE_ENV === 'test' && MOCK_AI=1` 切到 mock；生产路径里 `ProviderName === 'mock'` 会被 §5.3 production guard 拦下。
 
-### 8.4 必补集成测（7 项）
+**Mock fallback 集成测的 ai_calls 写入限制**：`MockAiProvider` 默认**不写 `ai_calls`**（fixture 直接返回，跳过 `startAiCall`/`finishAiCall`）。原因：fallback 测试里 primary 和 fallback 都是 `providerName='mock'`，若都写 ai_calls 会撞 `(correlation_id, provider)` UNIQUE。需要测 ai_calls 行为时，单独用真实 provider + 测试 supabase 实例。
 
+**Fallback 链路测试用法**：
+
+```ts
+// 测试里两个 Mock 实例的 providerName 都是 'mock'（生产 provider 各自 hardcode 真实名）；
+// 这里只验证 _meta.fallbackFrom 被 withFallback 正确写入
+const primary = new MockAiProvider();
+primary.setNextBehavior('estimateMealFromImage', { kind: 'throw', category: 'transport' });
+const fallback = new MockAiProvider();
+const provider = withFallback(primary, fallback);
+const r = await provider.estimateMealFromImage({ imageBase64 }, { userId, trigger: 'user', correlationId, kind: 'meal_photo', usageDate: '2026-05-19' });
+// 期望 primary 抛 transport AIError，fallback 接住返成功
+expect(primary.calls.estimateMealFromImage).toBe(1);
+expect(fallback.calls.estimateMealFromImage).toBe(1);
+expect(r._meta.provider).toBe('mock');                  // fallback 的 providerName
+expect(r._meta.fallbackFrom).toBe(primary.providerName); // 由 withFallback 在 fallback 结果上 mutation 写入
+```
+
+### 8.4 必补集成测
+
+**v1 必跑（Phase 1 单 provider，7 项）**：
 1. Migration smoke（空库 apply 全部成功 + RLS / trigger / RPC 存在）
-2. Budget 上限拒绝第 51 次（不写半截数据）
+2. Daily budget 上限拒绝第 51 次（不写半截数据）
 3. `client_mutation_id` 重复提交只生成一条 meal
 4. Stale trigger（改 meal ate_at 后对应 advice 标 stale，含跨周期 update 同时标新旧两 period）
 5. `try_start_cron_run` 并发只一个拿锁
 6. cron secret 校验（无 header → 401）
 7. push 失败不影响 cron 成功状态（inbox 仍写入）
+
+**Phase 3 启用后补（fallback 路径，2 项）**：
+8. Fallback monthly cap RPC 行为：
+   - **Setup**：预插一行 `ai_budget_monthly_fallback (user_id, usage_month=date_trunc('month',utc_today), estimated_cost_cents = 500 - PRE_ESTIMATES_CENTS['weekly_advice'] + 1)`，让账本贴近 cap 边界
+   - **断言**：第一次 `try_reserve_fallback_monthly_cap(user, 'weekly_advice')` 返 false（超 $5 阈值）；ok=true 时 settle 实际 cost 与 pre_estimate 差值能正确写回
+   - **user trigger 测试**：用真实 `withFallback(primary, fallback)` + Mock 强制 primary throw transport，断言 user trigger 路径 **不调用** `try_reserve_fallback_monthly_cap`（spy 该 RPC 或检查 `ai_budget_monthly_fallback` 行未变）
+
+9. `withFallback` 端到端集成测（Phase 3 接通后）：
+   - 用真实 Supabase 测试库 + **真实 `ClaudeApiProvider` adapter 作 fallback + 一个仅 throw 的 stub `SandboxAgentSdkProvider` 作 primary**（两个 `providerName` 不同：`claude_agent_sdk` / `anthropic_api`），从而能写入 `ai_calls` 两行而不撞 UNIQUE
+   - 也可以用 `nock`/`msw` mock 掉 Anthropic API 响应避免真实计费
+   - 验证：primary 抛 `transport`/`auth_oauth`/`schema_invalid` 时，`ai_calls` 真写两行（不同 provider 各一行，UNIQUE 约束通过）；`app_errors` 真写一行 `kind='provider_fallback'`（或 `oauth_token_expired`）；`_meta.fallbackFrom` 在响应里正确；同 correlation_id 能聚合
+   - 与 §8.3 单元测的边界：§8.3 用纯内存 `MockAiProvider`（providerName='mock'，**不写 ai_calls**）验证**控制流**（catch / fallback chain / cause 挂载）；§8.4 第 9 项用真实 provider class 验证**副作用**（ai_calls / app_errors DB 写入正确）
+
+**理由**：v1 单 provider 没有 fallback 路径运行时存在，集成测会因为没有真实 SandboxAgentSdkProvider 实例而失去意义；用 mock 测试 fallback 逻辑由 §8.3 单元层覆盖。Phase 3 接通后再补集成层确保端到端。
 
 ### 8.4.1 `app_private` schema 安全测
 
@@ -1587,17 +2682,21 @@ test('authenticated user 无法 SELECT app_private.cron_runs', async () => {
   expect(error).toBeTruthy();
 });
 
-test('authenticated user 无法 SELECT app_private.ai_calls / ai_budget_daily', async () => {
+test('authenticated user 无法 SELECT app_private.ai_calls / ai_budget_daily / ai_budget_monthly_fallback', async () => {
   const client = createTestClientForUid(process.env.OWNER_UID!);
-  for (const table of ['ai_calls', 'ai_budget_daily', 'app_owner', 'app_config']) {
+  for (const table of ['ai_calls', 'ai_budget_daily', 'ai_budget_monthly_fallback', 'app_owner', 'app_config']) {
     const { error } = await client.schema('app_private').from(table).select('*');
     expect(error).toBeTruthy();
   }
 });
 
-test('authenticated user 无法调用 try_reserve_ai_budget / settle_ai_budget', async () => {
+test('authenticated user 无法调用 budget / cron / fallback cap RPCs', async () => {
   const client = createTestClientForUid(process.env.OWNER_UID!);
-  for (const fn of ['try_reserve_ai_budget', 'settle_ai_budget', 'try_start_cron_run']) {
+  for (const fn of [
+    'try_reserve_ai_budget', 'settle_ai_budget',
+    'try_reserve_fallback_monthly_cap', 'settle_fallback_monthly_cap',
+    'try_start_cron_run',
+  ]) {
     const { error } = await client.schema('app_private').rpc(fn as any, {} as any);
     expect(error?.message).toMatch(/permission denied|function .* does not exist/);
   }
@@ -1656,13 +2755,14 @@ test('nutrition prompt is stable', () => {
 
 `ai_calls.prompt_version` 字段记录每次调用的 prompt 版本。
 
-### 8.8 E2E 4 条核心流（全 mock AI）
+### 8.8 E2E 5 条核心流（全 mock AI）
 
 ```
 e2e/01-fitness-meal.spec.ts    — 登录 → 选健身餐 → 累计更新
 e2e/02-photo-meal.spec.ts      — 上传 fixture → mock AI → 确认 → 入库
-e2e/03-daily-advice.spec.ts    — 触发 advice → inbox 未读 → 点开后已读
-e2e/04-offline-draft.spec.ts   — 离线创草稿 → IndexedDB pending → 联网 → sync + 幂等
+e2e/03-daily-advice.spec.ts    — 触发 advice → content_md 显示在页面（**不验证 inbox**，§4.3 决策日建议不写 inbox）
+e2e/04-weekly-advice-inbox.spec.ts  — cron 触发 weekly advice → inbox 出现未读 → 点开变已读（这条覆盖 inbox 流程）
+e2e/05-offline-draft.spec.ts   — 离线创草稿 → IndexedDB pending → 联网 → sync + 幂等
 ```
 
 ### 8.9 性能上限（不做 benchmark）
@@ -1685,6 +2785,23 @@ on:
     branches: [main]
 
 jobs:
+  # 独立 changes job：检测哪些路径变化，输出给下游 job 用
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      db_related: ${{ steps.filter.outputs.db_related }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            db_related:
+              - 'supabase/**'
+              - 'app/api/cron/**'
+              - 'lib/auth/**'
+              - 'lib/db/**'
+
   fast:
     runs-on: ubuntu-latest
     steps:
@@ -1700,19 +2817,10 @@ jobs:
   # 改 DB/cron/auth 时 PR 也跑；main 总跑
   integration:
     runs-on: ubuntu-latest
-    needs: fast
+    needs: [fast, changes]
     if: github.event_name == 'push' || needs.changes.outputs.db_related == 'true'
     steps:
       - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: changes
-        with:
-          filters: |
-            db_related:
-              - 'supabase/**'
-              - 'app/api/cron/**'
-              - 'lib/auth/**'
-              - 'lib/db/**'
       - uses: supabase/setup-cli@v1
       - run: supabase start
       - run: npm run test:integration
@@ -1732,7 +2840,7 @@ jobs:
 
 ### 8.11 iOS PWA 实机测试（上线前）
 
-40 项 checklist，分必测 / 应测：
+23 项 checklist（必测 15 + 应测 8）：
 
 **必测 15 项（不通过不能上线）**：
 1. Add to Home Screen 后独立 PWA 打开
@@ -1763,11 +2871,11 @@ jobs:
 
 ---
 
-## 9. Phase 1 → Phase 2 切换计划
+## 9. Phase 1 → Phase 3 切换计划
 
 ### Phase 1（今天 2026-05-19 ~ 2026-06-14，约 1 个月）
 
-- `AI_PRIMARY_PROVIDER=anthropic_api`
+- `lib/ai-provider/config.ts`：`AI_PRIMARY_PROVIDER = 'anthropic_api'`，`AI_FALLBACK_PROVIDER = null`
 - Anthropic Messages API + Sonnet 4.6（vision）+ Opus 4.7（月建议）
 - 按 token 计费，估月成本约 **$2**（新账号 $5 起步 credit 起手够用很久）
 - 重点：完成核心功能闭环 + iOS PWA 实机测试 + spec §8.11 必测项目通过
@@ -1783,18 +2891,35 @@ jobs:
 
 切换动作：
 1. 本地任意能跑 Claude CLI 的机器跑 `claude setup-token` 拿 1 年 OAuth token
-2. 创建 Vercel Sandbox snapshot（预装 `@anthropic-ai/claude-agent-sdk` + `claude` CLI）
-3. 部署：
+2. 创建 Vercel Sandbox snapshot（预装 `@anthropic-ai/claude-agent-sdk` + `claude` CLI），记录 `snap_xxx`
+3. Vercel env 追加：
    ```
-   AI_PRIMARY_PROVIDER=claude_agent_sdk
-   AI_FALLBACK_PROVIDER=anthropic_api
    CLAUDE_AGENT_SNAPSHOT_ID=snap_xxx
    CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
-   ANTHROPIC_API_KEY=sk-ant-...           # 保留作 fallback
+   # ANTHROPIC_API_KEY 继续保留作 fallback
    ```
-4. 业务代码**完全不动**（AI Provider 抽象层隔离）
+4. 改 `lib/ai-provider/config.ts` 两行常量：
+   ```ts
+   export const AI_PRIMARY_PROVIDER: ProviderName = 'claude_agent_sdk';
+   export const AI_FALLBACK_PROVIDER: ProviderName | null = 'anthropic_api';
+   ```
+5. `git commit` + push → Vercel 自动 redeploy（业务代码完全不动，AI Provider 抽象层隔离）
 
 **预期结果**：主路径走 Max credit（每月 ~40 次调用 << $200 池子），月 AI 成本 $0；偶发 fallback 几毛-几美元，硬上限 $5/月。
+
+### Vercel Sandbox snapshot 管理
+
+snapshot 是 Phase 3 主路径的执行环境基线，**预装** `@anthropic-ai/claude-agent-sdk` + `claude` CLI 之类依赖以让每次冷启动几秒内可用。管理规则：
+
+- **创建**：本地准备一份最小 Node 镜像（含 `package.json` 锁定 sdk 版本 + `claude` CLI binary），用 Vercel Sandbox API 创建 snapshot，**显式设 `expiration: 0`（不过期）**避免 Vercel 默认 30 天过期意外清掉生产 snapshot；记录 `snap_xxx` ID 推到 `CLAUDE_AGENT_SNAPSHOT_ID` env
+- **版本化**：snapshot ID 写死在 env，不动；要升级 sdk 版本时**创建新 snapshot** 拿到 `snap_yyy` → 改 env → 重 deploy，旧 snapshot 保留至少 14 天作回滚（也可创建时设 `expiration: ms('14d')`），确认稳定后用 `snapshot.delete(snap_xxx)` 清理
+- **不在 cron 里自动 rebuild snapshot**：单用户量级没必要，rebuild 完全人工触发
+- **rebuild 触发条件**（任一）：
+  - `@anthropic-ai/claude-agent-sdk` minor 升级（v1.0.0 → v1.1.0）
+  - Anthropic 强制 claude CLI 升级
+  - 主动 sdk 安全补丁追平
+- **OAuth token 续期与 snapshot rebuild 解耦**：spec 内 token 是 env 注入，snapshot 是 filesystem 基线，二者**无硬耦合**；续 token 不需要 rebuild snapshot
+- **回滚**：env 切回旧 `snap_xxx` ID redeploy
 
 ### POC 不通过的应急
 
@@ -1802,23 +2927,29 @@ jobs:
 
 ### Token 续期机制
 
-- OAuth token 1 年有效期，**到期前 ~2 周提前续**
-- GitHub Actions 月度 cron 检查 `app_private.app_errors` 中 oauth_token_expired 事件 + 提醒维护者
+- OAuth token 1 年有效期。**v1 没有"提前 2 周自动提醒"机制**，靠两层兜底：
+  - **维护者外部日历**（外部记账：当年 Vercel 设置 `CLAUDE_CODE_OAUTH_TOKEN` 时给自己加一个一年后到期前的提醒，spec 不强制方式）
+  - **被动发现**：token 真到期后，下一次 cron / 用户调用会触发 §5.7.2 `auth_oauth` fallback；withFallback 写 `app_errors.kind='oauth_token_expired'`；`/admin/debug` 维护者每周巡检会立即看见高亮提示
 - 续期：本地 Mac / 临时 Linux VM 跑 `claude setup-token` → 复制新 token 到 Vercel env → 触发 deploy
 - **续期期间软件自动走 API key fallback 不停机**
+- 该机制**接受最坏情况**：维护者一年没巡检 → token 到期当天才发现 → 仍可立即 fallback 不停机，最多多花几美元 API key 成本
 
 ### 关键事实记录（Codex 多轮事实核对结果）
 
-| 事实 | 影响设计 |
-|---|---|
-| 2026-02-20 Anthropic 改 ToS：禁第三方 OAuth | Phase 1 必须 API key，不能用 OAuth |
-| 2026-04-04 服务端封禁生效 | 6/15 前用 OAuth 软件随时挂 |
-| 2026-06-15 政策反转：Pro/Max 享 Agent SDK credit 池 | Phase 2 切换合规依据 |
-| `claude setup-token` 给 1 年 OAuth token | 续期约 1 年 1 次 |
-| Vercel Sandbox Hobby Plan 含 5 CPU hours/月 + 5000 sandbox creations/月 | 远超 food-food ~40 次/月需求 |
-| Vercel Sandbox snapshot 跳过 npm install | 冷启动从 5-10 分钟降到几秒-十几秒 |
-| Codex 估 OAuth token 撤销概率（单用户自用） | 1-2%/年（远低于第三方批量平台 10-20%）|
-| GPT-4o vs Claude 3.5 Sonnet vision 营养估算（学术论文）| 准度基本一致（36.3% vs 37.3% MAPE）—— 选 Claude 是为政策稳定性 + 中餐识别社区共识更强 + spec 已按 Claude 调优 |
+**注意**：以下"事实"为 2026-05 时点 codex 协同核对结果。**Phase 2 POC 启动前实现者必须重新核对所有 Anthropic / Vercel 政策项**（这些是会变的外部条件）。POC 任一关键事实失效 → 走 §9 "POC 不通过应急" 留 Phase 1。
+
+| 事实 | 影响设计 | 实现者验证步骤 |
+|---|---|---|
+| 2026-02-20 Anthropic 改 ToS：禁第三方 OAuth | Phase 1 必须 API key，不能用 OAuth | 查 https://www.anthropic.com/legal/commercial-terms 当前版本 + changelog |
+| 2026-04-04 服务端封禁生效 | 6/15 前用 OAuth 软件随时挂 | 跑 §5.7 POC sandbox-probe 强制触发 OAuth 路径，看是否被拒 |
+| 2026-06-15 政策反转：Pro/Max 享 Agent SDK credit 池 | Phase 3 切换合规依据 | 查 Anthropic Pricing / Agent SDK quickstart 是否仍允许 |
+| `claude setup-token` 给 1 年 OAuth token | 续期约 1 年 1 次 | 跑命令看输出，验证 token expires_at（claude CLI 当前版本：https://docs.claude.com/en/docs/claude-code/quickstart） |
+| Vercel Sandbox Hobby Plan 含 5 CPU hours/月 + 5000 sandbox creations/月 | 远超 food-food ~40 次/月需求 | 查 https://vercel.com/docs/vercel-sandbox 当前配额 + 计费 |
+| Vercel Sandbox snapshot 跳过 npm install | 冷启动从 5-10 分钟降到几秒-十几秒 | 跑 POC 5 次冷启动实测，记录到 §5.7 POC 验证表 |
+| Codex 估 OAuth token 撤销概率（单用户自用） | 1-2%/年（远低于第三方批量平台 10-20%）| 数据来源：Anthropic 公开 issue / community report；POC 跑 2-4 周看实际撤销次数 |
+| GPT-4o vs Claude 3.5 Sonnet vision 营养估算 | 准度基本一致（36.3% vs 37.3% MAPE）—— 选 Claude 是为政策稳定性 + 中餐识别社区共识更强 + spec 已按 Claude 调优 | 学术论文参考；v1 不重复验证，AI 回归测（§8.5）会兜底 |
+
+**事实验证 v1 必跑**：POC 启动前（6/15 前后）必须重新跑这张表的"实现者验证步骤"列，任一条与本表不一致 → 在 spec 标注分歧并选定应对策略（修 spec / 改 Phase / 等政策稳定）。
 
 ---
 
@@ -1877,24 +3008,35 @@ jobs:
 
 ## 13. 监控 & 可观测性
 
-**维护者手动巡检**：
-- 每周一次扫 `app_private.app_errors`（看 `kind` 分布、最近 critical 错误）
-- 每周一次扫 `app_private.ai_calls`（看 budget 是否接近上限、failed 占比）
-- 每月一次扫 `cron_runs`（看 cron 是否被跳过 / 失败次数）
+**`/admin/debug` 维护者面板**（v1 必做；替代 Sentry 等外部 APM）：
 
-**自动告警（v1 不做，v2 视情况加）**：
-- 不接 Sentry（单用户成本 / 收益不划算，错误日志表已经够看）
-- 极端情况：catch-up cron 内部如果发现 `cron_runs` 历史失败 > 3 次，写一条特殊 inbox `type='maintainer_alert'` 提醒打开 App 看
+**路由 + 鉴权**：`/admin/debug`，Server Component（不在浏览器 client 直读 `app_private`）。
+- 第一道：`requireAllowedUser({ fresh: true })` 确保是 owner
+- 第二道：header `x-dev-secret === DEV_SECRET`（与 `/api/dev/export` 同 secret）；前端进入面板时弹一次 secret 输入框 + POST 到 server 由 cookie/session 短期保留（避免 query 进浏览器历史/日志）
+- 服务端走 `supabaseAdmin`（用 `SUPABASE_SECRET_KEY_ADMIN`）读 `app_private.*` 表，不再单独建 admin key
+
+四个**必要**指标（用户决策 F）：
+
+1. **最近 7 天 AI 调用列表**（来源 `app_private.ai_calls`）：每行展示 `correlation_id` / `kind` / `trigger` / `provider` / `status` / `attempt` / `latency_ms` / `estimated_cost_usd` / `started_at`。点 row 展开查同 `correlation_id` 的 primary+fallback 两行。Phase 3 fallback 行高亮。
+2. **最近 7 天错误日志**（来源 `app_private.app_errors`）：按 `kind` 分组聚合（`provider_fallback` / `oauth_token_expired` / `fallback_cap_cron_skip` / `ai_call` / `push_send` / `cron` / `auth`），展开看 context（已脱敏）。`oauth_token_expired` 高亮提示"该续 OAuth token 了"。
+3. **预算状态**：今日 daily budget 使用率 + 本月 fallback monthly cap 使用率（从 `ai_budget_daily` / `ai_budget_monthly_fallback` 直接读，不是 SUM）。接近上限时红色提示。
+4. **Cron runs 历史**（最近 30 天，来源 `app_private.cron_runs`）：按 `job_name` 聚合，展示总次数 / failed 次数 / 最近一次成功/失败时间。**面板直接 `count(*) filter (where status='failed')` 算失败次数**（不写额外 app_errors 行），失败 > 3 次的 job 红色高亮（替代旧 `maintainer_alert` inbox 设计）。
+
+**维护者手动巡检**：用户决策 A —— 单用户自用，每周打开 `/admin/debug` 看一下就够，不接 Sentry / 不发邮件告警。极端 token 撤销 / fallback 月超 cap 等场景**完全不打扰用户**，只在面板上能看到。
 
 **用户数据导出（GDPR 备份通道）**：
 
 ```ts
 // app/api/dev/export/route.ts
+// 双层鉴权（与 /admin/debug 对齐）：单 DEV_SECRET 泄露不能直接拖走全量个人数据
 export async function GET(req: Request) {
+  // 第一道：owner session（必须是 owner，与 middleware ALLOWED_USER_ID 同语义）
+  const { userId } = await requireAllowedUser({ fresh: true });
+  // 第二道：dev secret
   if (req.headers.get('x-dev-secret') !== process.env.DEV_SECRET) {
     return new Response('forbidden', { status: 403 });
   }
-  const ownerId = process.env.ALLOWED_USER_ID;
+  const ownerId = userId;  // 现在 ownerId 来自 session 校验，不直接读 env 防 env 篡改
   const [meals, body_metrics, workout_days, advice, profiles] = await Promise.all([
     supabaseAdmin.from('meals').select('*').eq('user_id', ownerId),
     supabaseAdmin.from('body_metrics').select('*').eq('user_id', ownerId),
@@ -1909,6 +3051,8 @@ export async function GET(req: Request) {
   });
 }
 ```
+
+**注意**：因为现在 `/api/dev/export` 走 owner middleware 校验，§6.2 PUBLIC_PATHS **必须移除** `/api/dev/export`（保留 `/api/dev/sandbox-probe`，那个是 POC 工具不需要 owner 上线后才用）。
 
 **i18n / 文案策略**：v1 所有用户可见文案（inbox title 等）硬编码中文。未来若需 i18n 单独立项，不在 v1 范围。
 
