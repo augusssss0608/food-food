@@ -14,13 +14,27 @@ type Meal = {
   kcal: number | null;
 };
 
+type DailyAdvice = {
+  content_md: string;
+  generated_at: string | null;
+  stale: boolean | null;
+};
+
 const SOURCE_LABEL: Record<Meal['source'], string> = {
   preset: 'preset',
   photo_ai: 'ai',
   manual: '手動',
 };
 
-export default async function HistoryMealsPage() {
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export default async function HistoryMealsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>;
+}) {
+  const params = await searchParams;
+
   const supa = await createSupabaseServerClient();
   const { data: claims, error: claimsError } = await supa.auth.getClaims();
   if (claimsError || !claims?.claims?.sub) redirect('/login');
@@ -33,29 +47,55 @@ export default async function HistoryMealsPage() {
     .maybeSingle();
   if (profileError) throw profileError;
   const tz = (profile?.preferred_timezone ?? null) as string | null;
-  const { timezone } = todayUtcRange(tz);
+  const { timezone, localDate: todayLocalDate } = todayUtcRange(tz);
 
-  // 近 60 天，按用戶 timezone 算起點
-  const sixtyDaysAgoUtc = DateTime.now()
-    .setZone(timezone)
-    .minus({ days: 60 })
-    .startOf('day')
-    .toUTC()
-    .toISO()!;
+  // 解析 date 查詢參數，無效 / 缺失 → 預設今天
+  const requestedDate = params.date && DATE_RE.test(params.date) ? params.date : todayLocalDate;
+  // 邊界檢查：用 luxon parse；invalid → fallback
+  const dateDT = DateTime.fromISO(requestedDate, { zone: timezone });
+  const date = dateDT.isValid ? requestedDate : todayLocalDate;
 
-  const { data: mealsData, error: mealsError } = await supa
-    .from('meals')
-    .select('id, ate_at, source, dish_name, kcal')
-    .eq('user_id', userId)
-    .gte('ate_at', sixtyDaysAgoUtc)
-    .order('ate_at', { ascending: false });
-  if (mealsError) throw mealsError;
+  // 該日 [00:00, 24:00) 的 UTC 範圍（按 user timezone）
+  const dayStart = DateTime.fromISO(date, { zone: timezone }).startOf('day');
+  const startUtc = dayStart.toUTC().toISO()!;
+  const endExclusiveUtc = dayStart.plus({ days: 1 }).toUTC().toISO()!;
 
-  const grouped = groupByLocalDate((mealsData ?? []) as Meal[], timezone);
+  const [mealsRes, adviceRes] = await Promise.all([
+    supa
+      .from('meals')
+      .select('id, ate_at, source, dish_name, kcal')
+      .eq('user_id', userId)
+      .gte('ate_at', startUtc)
+      .lt('ate_at', endExclusiveUtc)
+      .order('ate_at', { ascending: true }),
+    supa
+      .from('advice')
+      .select('content_md, generated_at, stale')
+      .eq('user_id', userId)
+      .eq('kind', 'daily')
+      .eq('period_start', date)
+      .maybeSingle(),
+  ]);
+  if (mealsRes.error) throw mealsRes.error;
+  if (adviceRes.error) throw adviceRes.error;
+
+  const meals = (mealsRes.data ?? []) as Meal[];
+  const advice = (adviceRes.data ?? null) as DailyAdvice | null;
+  const totalKcal = Math.round(meals.reduce((s, m) => s + (m.kcal ?? 0), 0));
+
+  // prev / next 日期（不限制範圍，server fetch 空也照顯）
+  const prevDate = dateDT.minus({ days: 1 }).toISODate()!;
+  const nextDate = dateDT.plus({ days: 1 }).toISODate()!;
+  const isToday = date === todayLocalDate;
+
+  // 中文日期顯示：「5 月 21 日 星期四」
+  const dateLabel = dateDT.setLocale('zh-TW').toLocaleString({
+    month: 'long', day: 'numeric', weekday: 'long',
+  });
 
   return (
     <PageShell>
-      <header className="mb-8">
+      <header className="mb-6">
         <Link
           href="/"
           prefetch
@@ -66,72 +106,105 @@ export default async function HistoryMealsPage() {
         </Link>
         <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">history · meals</p>
         <h1 className="display-roman text-[32px] leading-none">飲食歷史</h1>
-        <p className="text-text-3 text-[13px] mt-2">近 60 天每日紀錄，只看不改</p>
       </header>
 
-      {grouped.length === 0 ? (
-        <Card className="p-6 text-center">
-          <p className="text-text-3 text-[13px]">沒有紀錄</p>
-        </Card>
-      ) : (
-        <div className="space-y-6">
-          {grouped.map(({ date, meals, totalKcal }) => (
-            <section key={date}>
-              <div className="flex items-baseline justify-between mb-2">
-                <p className="text-[12px] uppercase tracking-[0.18em] text-accent font-mono">{date}</p>
-                <p className="text-[11px] text-text-3 font-mono tabular">
-                  {totalKcal} <span className="text-text-4">kcal · {meals.length} 餐</span>
-                </p>
-              </div>
-              <ul className="space-y-2">
-                {meals.map((m) => (
-                  <li
-                    key={m.id}
-                    className="bg-surface border border-hairline rounded-xl px-4 py-2.5 flex items-center gap-3"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] text-text font-medium truncate">
-                        {m.dish_name ?? '未命名'}
-                      </p>
-                      <p className="text-[10px] text-text-4 font-mono tabular mt-0.5">
-                        {new Date(m.ate_at).toLocaleTimeString('zh-TW', {
-                          hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone,
-                        })}
-                        {' · '}
-                        {SOURCE_LABEL[m.source]}
-                      </p>
-                    </div>
-                    <p className="text-[14px] font-mono text-accent tabular flex-shrink-0">
-                      {m.kcal == null ? '—' : Math.round(m.kcal)}
-                      <span className="text-[9px] text-text-3 ml-0.5">kcal</span>
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+      {/* 日期切換條 */}
+      <div className="flex items-center justify-between bg-surface border border-hairline rounded-xl px-3 py-3 mb-6">
+        <Link
+          href={`/history/meals?date=${prevDate}`}
+          prefetch={false}
+          replace
+          aria-label="前一天"
+          className="p-2 -ml-1 text-text-2 hover:text-text rounded-md transition-colors"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </Link>
+        <div className="text-center">
+          <p className="text-[14px] text-text font-medium">{dateLabel}</p>
+          <p className="text-[10px] text-text-4 font-mono tabular mt-0.5">{date}{isToday && ' · 今天'}</p>
         </div>
-      )}
+        <Link
+          href={`/history/meals?date=${nextDate}`}
+          prefetch={false}
+          replace
+          aria-label="後一天"
+          className="p-2 -mr-1 text-text-2 hover:text-text rounded-md transition-colors"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </Link>
+      </div>
+
+      {/* 當日 meals 列表 */}
+      <section className="mb-7">
+        <div className="flex items-baseline justify-between mb-2">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono">當日紀錄</p>
+          <p className="text-[11px] text-text-3 font-mono tabular">
+            {meals.length === 0 ? '無' : <>{totalKcal} <span className="text-text-4">kcal · {meals.length} 餐</span></>}
+          </p>
+        </div>
+        {meals.length === 0 ? (
+          <Card className="px-5 py-6 text-center">
+            <p className="text-[13px] text-text-3">沒有紀錄</p>
+          </Card>
+        ) : (
+          <ul className="space-y-2">
+            {meals.map((m) => (
+              <li
+                key={m.id}
+                className="bg-surface border border-hairline rounded-xl px-4 py-2.5 flex items-center gap-3"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] text-text font-medium truncate">{m.dish_name ?? '未命名'}</p>
+                  <p className="text-[10px] text-text-4 font-mono tabular mt-0.5">
+                    {new Date(m.ate_at).toLocaleTimeString('zh-TW', {
+                      hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone,
+                    })}
+                    {' · '}
+                    {SOURCE_LABEL[m.source]}
+                  </p>
+                </div>
+                <p className="text-[14px] font-mono text-accent tabular flex-shrink-0">
+                  {m.kcal == null ? '—' : Math.round(m.kcal)}
+                  <span className="text-[9px] text-text-3 ml-0.5">kcal</span>
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* 當日 AI 建議 */}
+      <section>
+        <div className="flex items-baseline justify-between mb-2">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono">AI 今日總評</p>
+          {advice?.stale && (
+            <p className="text-[10px] text-warm font-mono uppercase tracking-wide">已過時</p>
+          )}
+        </div>
+        {advice ? (
+          <Card className="px-4 py-4">
+            <pre className="text-[13px] text-text-2 leading-relaxed whitespace-pre-wrap break-words font-sans">
+              {advice.content_md}
+            </pre>
+            {advice.generated_at && (
+              <p className="text-[10px] text-text-4 font-mono tabular mt-3">
+                生成於 {new Date(advice.generated_at).toLocaleString('zh-TW', { timeZone: timezone })}
+              </p>
+            )}
+          </Card>
+        ) : (
+          <Card className="px-5 py-6 text-center">
+            <p className="text-[13px] text-text-3">無</p>
+            {isToday && (
+              <p className="text-[11px] text-text-4 mt-1">回主頁點「今天怎麼樣？」生成</p>
+            )}
+          </Card>
+        )}
+      </section>
     </PageShell>
   );
-}
-
-function groupByLocalDate(
-  meals: Meal[],
-  tz: string,
-): { date: string; meals: Meal[]; totalKcal: number }[] {
-  const groups = new Map<string, Meal[]>();
-  for (const m of meals) {
-    const localDate = DateTime.fromISO(m.ate_at).setZone(tz).toISODate()!;
-    const arr = groups.get(localDate) ?? [];
-    arr.push(m);
-    groups.set(localDate, arr);
-  }
-  return Array.from(groups.entries())
-    .map(([date, arr]) => ({
-      date,
-      meals: arr,
-      totalKcal: Math.round(arr.reduce((s, m) => s + (m.kcal ?? 0), 0)),
-    }))
-    .sort((a, b) => b.date.localeCompare(a.date));
 }

@@ -1,14 +1,15 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FITNESS_MEAL_PRESETS } from '@/lib/fitness-meals';
+import { type MealPreview } from '@/components/meal-preview-card';
 import { PhotoInput } from '@/components/photo-input';
-import { MealPreviewCard, type MealPreview } from '@/components/meal-preview-card';
 import { BodyPreviewCard, type BodyPreview } from '@/components/body-preview-card';
 import { PushEnableButton } from '@/components/push-enable-button';
 import { TodaySummary } from '@/components/today-summary';
 import { TodayMeals, type TodayMeal } from '@/components/today-meals';
 import { MealDetailSheet } from '@/components/meal-detail-sheet';
+import { AddMealSheet } from '@/components/add-meal-sheet';
+import { WorkoutDayToggle } from '@/components/workout-day-toggle';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { saveDraft, syncDrafts } from '@/lib/drafts/sync';
 import { getDraftsDb, type LocalDraft } from '@/lib/drafts/db';
@@ -46,6 +47,7 @@ export function HomeContent({
   meals,
   targets,
   timezone,
+  todayDate,
   isWorkoutDay,
   workoutMarked,
 }: {
@@ -54,6 +56,7 @@ export function HomeContent({
   workoutMarked: boolean;
   targets: Targets;
   timezone: string;
+  todayDate: string;
 }) {
   const router = useRouter();
   const [mealPreview, setMealPreview] = useState<MealPreview | null>(null);
@@ -62,6 +65,7 @@ export function HomeContent({
   const [draftCount, setDraftCount] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedMeal, setSelectedMeal] = useState<TodayMeal | null>(null);
+  const [addMealOpen, setAddMealOpen] = useState(false);
 
   const [presetBusy, setPresetBusy] = useState<string | null>(null);
   const [mealExtractBusy, setMealExtractBusy] = useState(false);
@@ -71,7 +75,6 @@ export function HomeContent({
   const [adviceBusy, setAdviceBusy] = useState(false);
   const toast = useToast();
 
-  // 把 server 傳來的 meals 聚合成今日累積值（kcal / 宏量），驅動 TodaySummary
   const consumed = useMemo(() => meals.reduce(
     (acc, m) => ({
       kcal: acc.kcal + (m.kcal ?? 0),
@@ -140,7 +143,8 @@ export function HomeContent({
     setPresetBusy(null);
     if (r) {
       toast.success('已記錄', name);
-      router.refresh(); // 重新拉 server 數據，今日摘要 + meal list 即時更新
+      setAddMealOpen(false);
+      router.refresh();
     }
   }
 
@@ -175,6 +179,7 @@ export function HomeContent({
     if (r) {
       setMealPreview(null);
       toast.success('已入庫', p.dish_name);
+      setAddMealOpen(false);
       router.refresh();
     }
   }
@@ -211,7 +216,6 @@ export function HomeContent({
     if (r) {
       setBodyPreview(null);
       toast.success('已入庫', `${b.weight_kg} kg`);
-      // body 不直接影響今日摘要，但未來身體數據頁也是 server fetch，refresh 一下無害
       router.refresh();
     }
   }
@@ -240,31 +244,62 @@ export function HomeContent({
     location.replace('/login');
   }
 
-  // 日期顯示用 profile timezone，跟 server 算今日範圍同口徑
+  function tryOpenAddMeal() {
+    if (!workoutMarked) {
+      toast.info('請先選擇今日是訓練日或休息日');
+      return;
+    }
+    // 互斥：開「新增餐」前先關詳情面板，避免兩 sheet 同時 fixed 定位 / body 鎖滾打架
+    setSelectedMeal(null);
+    setAddMealOpen(true);
+  }
+
+  function handleSelectMeal(m: TodayMeal) {
+    // 互斥：開詳情前關「新增餐」
+    setAddMealOpen(false);
+    setSelectedMeal(m);
+  }
+
   const today = new Date().toLocaleDateString('zh-TW', {
     month: 'long', day: 'numeric', weekday: 'long', timeZone: timezone,
   });
-  // 訓練日 / 休息日 標示 + 「未標記，暫按休息日」提示
   const workoutHint = workoutMarked
     ? (isWorkoutDay ? '訓練日' : '休息日')
-    : '未標記，暫按休息日';
+    : '未標記';
 
   return (
     <>
       <PageShell>
-        {/* Header */}
+        {/* Header — 左：漢堡，右：「+」新增餐 */}
         <header className="mb-6">
-          <button
-            onClick={() => setDrawerOpen(true)}
-            aria-label="open menu"
-            className="p-2 -ml-2 mb-4 text-text-2 hover:text-text active:scale-95 transition-all rounded-md"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="4" y1="7" x2="20" y2="7" />
-              <line x1="4" y1="13" x2="20" y2="13" />
-              <line x1="4" y1="19" x2="14" y2="19" />
-            </svg>
-          </button>
+          <div className="flex items-center justify-between mb-4">
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="open menu"
+              className="p-2 -ml-2 text-text-2 hover:text-text active:scale-95 transition-all rounded-md"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="4" y1="7" x2="20" y2="7" />
+                <line x1="4" y1="13" x2="20" y2="13" />
+                <line x1="4" y1="19" x2="14" y2="19" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={tryOpenAddMeal}
+              aria-label="add meal"
+              className={[
+                'p-2 -mr-2 active:scale-95 transition-all rounded-md',
+                workoutMarked ? 'text-accent hover:text-accent-press' : 'text-text-3 hover:text-text-2',
+              ].join(' ')}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
+          </div>
           <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-1">{today}</p>
           <h1 className="display-roman text-[34px] leading-none">
             food <span className="display">·</span> food
@@ -282,60 +317,20 @@ export function HomeContent({
           )}
         </div>
 
-        {/* 今日摘要 — C 位 */}
+        {/* 今日狀態切換：訓練日 / 休息日 */}
+        <WorkoutDayToggle
+          date={todayDate}
+          workoutMarked={workoutMarked}
+          isWorkoutDay={isWorkoutDay}
+        />
+
+        {/* 今日摘要 */}
         <TodaySummary consumed={consumed} targets={targets} workoutHint={workoutHint} />
 
-        {/* 今日已記錄的 meals — 點某條彈 MealDetailSheet 改 / 刪 */}
-        <TodayMeals meals={meals} timezone={timezone} onSelect={setSelectedMeal} />
+        {/* 今日已記錄的 meals */}
+        <TodayMeals meals={meals} timezone={timezone} onSelect={handleSelectMeal} />
 
-        {/* 錄入入口 — preset / 拍餐 / 體重截圖 折在下方 */}
-        <section className="mb-7">
-          <SectionLabel>選健身餐</SectionLabel>
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(FITNESS_MEAL_PRESETS).map(([k, v]) => (
-              <button
-                key={k}
-                onClick={() => pickFitnessMeal(k, v.name)}
-                disabled={presetBusy !== null}
-                className={[
-                  'group relative bg-surface border border-hairline rounded-xl p-4 text-left transition-colors',
-                  'hover:border-hairline-strong hover:bg-surface-2',
-                  'active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed',
-                ].join(' ')}
-              >
-                <p className="text-[14px] text-text font-medium leading-tight">{v.name}</p>
-                <p className="text-[18px] font-mono text-accent tabular mt-2 leading-none">{v.kcal}<span className="text-[10px] text-text-3 ml-1">kcal</span></p>
-                {presetBusy === k && (
-                  <div className="absolute inset-0 bg-ink/60 backdrop-blur-sm rounded-xl flex items-center justify-center">
-                    <Spinner size={18} className="text-accent" />
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="mb-7">
-          <SectionLabel>拍餐 · 其他</SectionLabel>
-          {!mealPreview && !mealExtractBusy && (
-            <PhotoInput onPicked={uploadMealPhoto} label="拍照 / 選圖識別" />
-          )}
-          {mealExtractBusy && (
-            <Card className="h-28 flex items-center justify-center gap-3">
-              <Spinner size={18} className="text-accent" />
-              <span className="text-[13px] text-text-2">AI 識別中…</span>
-            </Card>
-          )}
-          {mealPreview && (
-            <MealPreviewCard
-              initial={mealPreview}
-              onConfirm={confirmMeal}
-              onCancel={() => setMealPreview(null)}
-              busy={confirmMealBusy}
-            />
-          )}
-        </section>
-
+        {/* 體重 / 體脂截圖 — 留在主頁，不進 AddMealSheet（功能性不同） */}
         <section className="mb-8">
           <SectionLabel>體重 / 體脂截圖</SectionLabel>
           {!bodyPreview && !bodyExtractBusy && (
@@ -359,12 +354,7 @@ export function HomeContent({
 
         {/* AI 今日總評 */}
         <section>
-          <Button
-            onClick={triggerDailyAdvice}
-            loading={adviceBusy}
-            size="lg"
-            className="w-full"
-          >
+          <Button onClick={triggerDailyAdvice} loading={adviceBusy} size="lg" className="w-full">
             {adviceBusy ? 'AI 思考中…' : '今天怎麼樣？'}
           </Button>
           <p className="text-center text-[11px] text-text-4 mt-2 font-mono uppercase tracking-wide">
@@ -426,6 +416,20 @@ export function HomeContent({
           v0.1 · single-user beta
         </div>
       </Drawer>
+
+      {/* 「+」打開的新增餐面板 */}
+      <AddMealSheet
+        open={addMealOpen}
+        onClose={() => setAddMealOpen(false)}
+        presetBusy={presetBusy}
+        onPickPreset={pickFitnessMeal}
+        mealExtractBusy={mealExtractBusy}
+        onUploadMealPhoto={uploadMealPhoto}
+        mealPreview={mealPreview}
+        onConfirmMeal={confirmMeal}
+        onCancelMealPreview={() => setMealPreview(null)}
+        confirmMealBusy={confirmMealBusy}
+      />
 
       {/* 今日 meal 詳情 / 編輯 / 刪除 */}
       <MealDetailSheet meal={selectedMeal} timezone={timezone} onClose={() => setSelectedMeal(null)} />

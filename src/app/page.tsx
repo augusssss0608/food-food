@@ -62,18 +62,25 @@ export default async function HomePage() {
   const workoutMarked = workoutRow != null;
   const isWorkoutDay = (workoutRow?.is_workout ?? false) as boolean;
 
-  return (
-    <HomeContent
-      meals={meals}
-      timezone={timezone}
-      isWorkoutDay={isWorkoutDay}
-      workoutMarked={workoutMarked}
-      targets={{
+  // 未標記時 targets 全 0：用戶在主頁明確看到「需要先選擇」的提示，
+  // 不再默認 fallback 到休息日 / 訓練日。daily advice 也跟這個口徑保持一致。
+  const targets = workoutMarked
+    ? {
         kcal: isWorkoutDay ? (p.kcal_workout_day ?? 0) : (p.kcal_rest_day ?? 0),
         protein_g: p.protein_g ?? 0,
         carb_g: isWorkoutDay ? (p.carb_workout_day ?? 0) : (p.carb_rest_day ?? 0),
         fat_g: p.fat_g ?? 0,
-      }}
+      }
+    : { kcal: 0, protein_g: 0, carb_g: 0, fat_g: 0 };
+
+  return (
+    <HomeContent
+      meals={meals}
+      timezone={timezone}
+      todayDate={localDate}
+      isWorkoutDay={isWorkoutDay}
+      workoutMarked={workoutMarked}
+      targets={targets}
     />
   );
 }
