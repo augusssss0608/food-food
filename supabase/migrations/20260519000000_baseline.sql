@@ -140,6 +140,9 @@ alter default privileges in schema app_private revoke execute on functions from 
 alter default privileges in schema app_private revoke execute on functions from authenticated, anon;
 
 grant usage on schema app_private to authenticated;
+-- service_role 通过 PostgREST 调用 app_private RPC / 表时也需要 schema usage
+-- （plan 漏写；表级 grant 已有，但缺 schema-level usage 会被 PostgREST 拦在 schema 入口）
+grant usage on schema app_private to service_role;
 
 -- ============ Step 4: app_private 配置 / owner 表 + owner_user_id() ============
 
@@ -254,6 +257,7 @@ create or replace function app_private.try_reserve_ai_budget(
   out ok boolean,
   out usage_date date
 ) language plpgsql security definer set search_path = app_private as $$
+#variable_conflict use_column
 declare
   today_utc date := (now() at time zone 'UTC')::date;
   call_cap int;
@@ -273,7 +277,7 @@ begin
 
   select call_count, estimated_cost_cents into row_call_count, row_cost
     from ai_budget_daily
-    where user_id = p_user_id and usage_date = today_utc
+    where ai_budget_daily.user_id = p_user_id and ai_budget_daily.usage_date = today_utc
     for update;
 
   if row_call_count + 1 > call_cap then ok := false; usage_date := today_utc; return; end if;
@@ -283,7 +287,7 @@ begin
     set call_count = call_count + 1,
         estimated_cost_cents = estimated_cost_cents + p_estimated_cost_cents,
         updated_at = now()
-    where user_id = p_user_id and usage_date = today_utc;
+    where ai_budget_daily.user_id = p_user_id and ai_budget_daily.usage_date = today_utc;
 
   ok := true; usage_date := today_utc;
 end; $$;
@@ -313,6 +317,7 @@ create or replace function app_private.try_reserve_fallback_monthly_cap(
   out ok boolean,
   out usage_month date
 ) language plpgsql security definer set search_path = app_private as $$
+#variable_conflict use_column
 declare
   current_month date := date_trunc('month', (now() at time zone 'UTC')::date)::date;
   cap int;
@@ -329,7 +334,7 @@ begin
 
   select estimated_cost_cents into row_cost
     from ai_budget_monthly_fallback
-    where user_id = p_user_id and usage_month = current_month
+    where ai_budget_monthly_fallback.user_id = p_user_id and ai_budget_monthly_fallback.usage_month = current_month
     for update;
 
   if row_cost + p_estimated_cost_cents > cap then ok := false; usage_month := current_month; return; end if;
@@ -337,7 +342,7 @@ begin
   update ai_budget_monthly_fallback
     set estimated_cost_cents = estimated_cost_cents + p_estimated_cost_cents,
         updated_at = now()
-    where user_id = p_user_id and usage_month = current_month;
+    where ai_budget_monthly_fallback.user_id = p_user_id and ai_budget_monthly_fallback.usage_month = current_month;
 
   ok := true; usage_month := current_month;
 end; $$;

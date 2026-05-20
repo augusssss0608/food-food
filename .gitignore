@@ -62,3 +62,6 @@ Thumbs.db
 # supabase local
 /supabase/.branches
 /supabase/.temp
+
+# test env (contains service_role)
+.env.test.local
