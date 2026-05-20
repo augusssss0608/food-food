@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { DateTime } from 'luxon';
+import { todayUtcRange } from '@/lib/timezone';
 import { assertSameOrigin, CsrfError } from '@/lib/auth/csrf';
 import { requireAllowedUser, AuthError, ForbiddenError } from '@/lib/auth/require-allowed-user';
 import { reserveAiBudget } from '@/lib/ai-provider/budget';
@@ -34,8 +35,9 @@ export async function POST(req: Request) {
     const profile = profileData as ProfileRow | null;
     if (!profile) return NextResponse.json({ error: 'profile not found; run /setup first' }, { status: 400 });
 
-    const tz = profile.preferred_timezone ?? 'Asia/Tokyo';
-    const targetDate = body.date ?? DateTime.now().setZone(tz).toISODate()!;
+    // 用 helper 算今日 date，跟 / 主頁口徑一致（含 invalid tz fallback）
+    const { timezone: tz, localDate } = todayUtcRange(profile.preferred_timezone);
+    const targetDate = body.date ?? localDate;
 
     const correlationId = crypto.randomUUID();
     const { usageDate } = await reserveAiBudget(userId, 'daily_advice');
