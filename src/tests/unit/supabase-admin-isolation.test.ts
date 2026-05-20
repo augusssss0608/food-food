@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 
+// server-only 包在 client 环境强行抛错（这是它的作用）；vitest jsdom 环境模拟两侧 import，统一 mock 成空模块
+vi.mock('server-only', () => ({}));
+
 describe('supabaseAdmin isolation', () => {
   const ORIG_WINDOW = (globalThis as unknown as { window?: unknown }).window;
 

@@ -10,10 +10,18 @@ export class CsrfError extends Error {
 export function assertSameOrigin(req: Request): void {
   if (SAFE_METHODS.has(req.method)) return;
   const origin = req.headers.get('origin');
-  const allowed = new Set([process.env.NEXT_PUBLIC_SITE_URL!.toLowerCase()]);
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (!siteUrl) throw new CsrfError('NEXT_PUBLIC_SITE_URL not configured');
+  const allowed = new Set([siteUrl.toLowerCase()]);
   if (process.env.NODE_ENV !== 'production') allowed.add('http://localhost:3000');
   if (origin) {
-    if (!allowed.has(new URL(origin).origin.toLowerCase())) throw new CsrfError();
+    let normalized: string;
+    try {
+      normalized = new URL(origin).origin.toLowerCase();
+    } catch {
+      throw new CsrfError('Invalid origin header');
+    }
+    if (!allowed.has(normalized)) throw new CsrfError();
     return;
   }
   const sfs = req.headers.get('sec-fetch-site');
