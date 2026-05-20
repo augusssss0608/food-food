@@ -41,6 +41,8 @@
 html {
   background: var(--color-ink);
   color-scheme: dark;
+  /* 防止任何 fixed/transform 元素短暂溢出导致整页可横向滚动（drawer 滑入时） */
+  overflow-x: hidden;
 }
 
 body {
@@ -52,6 +54,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100dvh;
+  overflow-x: hidden;
 }
 
 /* Decorative grain texture overlay — adds atmospheric depth.

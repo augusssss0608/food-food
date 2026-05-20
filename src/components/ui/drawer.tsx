@@ -25,11 +25,11 @@ export function Drawer({
 
   return (
     <>
-      {/* overlay — 純 dim，不要 backdrop-blur，避免主畫面模糊感（用戶反饋） */}
+      {/* overlay — 輕度 dim（35%），主畫面仍可見；不做 backdrop-blur */}
       <div
         aria-hidden={!open}
         className={[
-          'fixed inset-0 z-40 bg-ink/70 transition-opacity duration-200',
+          'fixed inset-0 z-40 bg-ink/35 transition-opacity duration-200',
           open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
         ].join(' ')}
         onClick={onClose}
@@ -37,14 +37,15 @@ export function Drawer({
       <aside
         aria-hidden={!open}
         className={[
-          // h-dvh 而不是 h-full：確保是 viewport 高度，配合下面 safe-area padding，
-          // 底部 home indicator 區的內容不會被截掉（用戶反饋 "V0.1" 半截）
-          'fixed top-0 right-0 z-50 h-dvh w-[min(320px,86vw)] bg-surface border-l border-hairline shadow-2xl shadow-black/60',
+          // 改用 w-80 + max-w-[86vw]，避開 Tailwind v4 對 w-[min(...)] 解析的不確定
+          // 同時用內聯 style 把 right:0 / width 寫死，雙重保險
+          'fixed top-0 z-50 h-dvh w-80 max-w-[86vw] bg-surface border-l border-hairline shadow-2xl shadow-black/60',
           'flex flex-col',
           'transform transition-transform duration-300',
           open ? 'translate-x-0' : 'translate-x-full',
         ].join(' ')}
         style={{
+          right: 0,
           paddingTop: 'env(safe-area-inset-top)',
           paddingBottom: 'env(safe-area-inset-bottom)',
           transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
@@ -90,11 +91,12 @@ export function DrawerItem({
       <span className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${danger ? 'bg-danger/10' : 'bg-surface-2'}`}>
         {icon}
       </span>
+      {/* truncate 兜底：即便容器寬度算錯也不會跑出邊 */}
       <span className="flex-1 min-w-0">
-        <span className="block text-[14px] font-medium leading-tight">{label}</span>
-        {hint && <span className="block text-[12px] text-text-3 mt-0.5">{hint}</span>}
+        <span className="block text-[14px] font-medium leading-tight truncate">{label}</span>
+        {hint && <span className="block text-[12px] text-text-3 mt-0.5 truncate">{hint}</span>}
       </span>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-text-3">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-text-3 flex-shrink-0">
         <path d="M9 18l6-6-6-6" />
       </svg>
     </>
