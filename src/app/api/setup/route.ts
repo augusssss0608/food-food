@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { assertSameOrigin, CsrfError } from '@/lib/auth/csrf';
 import { requireAllowedUser, AuthError, ForbiddenError } from '@/lib/auth/require-allowed-user';
-import { reserveAiBudget, settleAiBudget } from '@/lib/ai-provider/budget';
+import { reserveAiBudget } from '@/lib/ai-provider/budget';
 import { getAiProvider, AIError } from '@/lib/ai-provider';
 import { fallbackTdee } from '@/lib/ai-provider/fallback-tdee';
 import { supabaseAdmin } from '@/lib/supabase/admin';
@@ -41,16 +41,16 @@ export async function POST(req: Request) {
       );
     } catch (e) {
       // 仅"AI 输出不合规"走 fallback；rate_limit / transport / auth_oauth 必须 rethrow
+      // 注意：provider 内部 finally 已 settleAiBudget（actualCents=0），route 不再 settle 避免 double-settle
       if (e instanceof AIError && (e.category === 'schema_invalid' || e.category === 'unknown')) {
         await writeAppError({ kind: 'ai_call', correlationId, message: 'initial_targets fallback to fallbackTdee', context: { reason: e.category } });
         targets = fallbackTdee(body);
       } else {
-        await settleAiBudget(userId, 'initial_targets', usageDate, 0);
         throw e;
       }
     }
 
-    await supabaseAdmin().from('profiles').upsert({
+    const { error: upsertErr } = await supabaseAdmin().from('profiles').upsert({
       user_id: userId,
       ...body,
       ...targets,
@@ -58,6 +58,10 @@ export async function POST(req: Request) {
       targets_updated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
+    if (upsertErr) {
+      await writeAppError({ kind: 'ai_call', correlationId, message: `profiles upsert failed: ${upsertErr.message}` });
+      return NextResponse.json({ error: 'profile save failed' }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, targets });
   } catch (e: unknown) {

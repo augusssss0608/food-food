@@ -25,7 +25,8 @@ export async function POST(req: Request) {
     const body = Body.parse(await req.json());
 
     const supa = supabaseAdmin();
-    const { error: insertErr } = await supa.from('body_metrics').upsert({
+    // 用 .select() 后才能区分"插入了新行" vs "幂等命中"：ignoreDuplicates 时冲突命中返回空数组
+    const { data: inserted, error: insertErr } = await supa.from('body_metrics').upsert({
       user_id: userId,
       measured_at: body.measured_at,
       weight_kg: body.weight_kg,
@@ -36,15 +37,20 @@ export async function POST(req: Request) {
       source: body.source,
       ai_raw_json: body.ai_raw_json ?? null,
       client_mutation_id: mutationId,
-    }, { onConflict: 'user_id,client_mutation_id', ignoreDuplicates: true });
+    }, { onConflict: 'user_id,client_mutation_id', ignoreDuplicates: true }).select('id');
     if (insertErr) throw insertErr;
 
-    await supa.from('profiles').update({
-      current_weight_kg: body.weight_kg,
-      updated_at: new Date().toISOString(),
-    }).eq('user_id', userId);
+    // 只在确实插入新 body_metrics 行时同步 profiles.current_weight_kg
+    // 否则幂等重放 / 旧请求会用陈旧 weight 覆盖 profile
+    if (inserted && inserted.length > 0) {
+      const { error: profileErr } = await supa.from('profiles').update({
+        current_weight_kg: body.weight_kg,
+        updated_at: new Date().toISOString(),
+      }).eq('user_id', userId);
+      if (profileErr) throw profileErr;
+    }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, idempotentSkip: !inserted || inserted.length === 0 });
   } catch (e: unknown) {
     if (e instanceof CsrfError) return new NextResponse('forbidden', { status: 403 });
     if (e instanceof AuthError) return new NextResponse('unauthorized', { status: 401 });

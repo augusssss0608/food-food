@@ -52,25 +52,27 @@ describe('RLS — authenticated user JWT matrix', () => {
   let ownerClient: ReturnType<typeof createClient>;
   let strangerClient: ReturnType<typeof createClient>;
 
-  beforeAll(async () => {
+  async function ensureUser(email: string): Promise<{ id: string }> {
     const { data: list } = await admin.auth.admin.listUsers();
-    let owner = list.users.find((u) => u.email === TEST_OWNER_EMAIL);
-    if (!owner) {
-      const r = await admin.auth.admin.createUser({ email: TEST_OWNER_EMAIL, password: PW, email_confirm: true });
-      owner = r.data.user!;
-    } else {
-      await admin.auth.admin.updateUserById(owner.id, { password: PW });
+    let user = list.users.find((u) => u.email === email);
+    if (user) {
+      await admin.auth.admin.updateUserById(user.id, { password: PW });
+      return user;
     }
-    ownerId = owner.id;
+    const r = await admin.auth.admin.createUser({ email, password: PW, email_confirm: true });
+    if (r.error || !r.data.user) {
+      // race condition? 重新 list
+      const { data: l2 } = await admin.auth.admin.listUsers();
+      user = l2.users.find((u) => u.email === email);
+      if (!user) throw new Error(`createUser('${email}') failed: ${r.error?.message ?? 'null user'}`);
+      return user;
+    }
+    return r.data.user;
+  }
 
-    let stranger = list.users.find((u) => u.email === STRANGER_EMAIL);
-    if (!stranger) {
-      const r = await admin.auth.admin.createUser({ email: STRANGER_EMAIL, password: PW, email_confirm: true });
-      stranger = r.data.user!;
-    } else {
-      await admin.auth.admin.updateUserById(stranger.id, { password: PW });
-    }
-    strangerId = stranger.id;
+  beforeAll(async () => {
+    ownerId = (await ensureUser(TEST_OWNER_EMAIL)).id;
+    strangerId = (await ensureUser(STRANGER_EMAIL)).id;
 
     // 把 owner 绑到 app_private.app_owner（表结构 id boolean + owner_user_id uuid，single_owner 约束）
     await admin.schema('app_private').from('app_owner').upsert({

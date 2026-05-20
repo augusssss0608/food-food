@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     const { userId } = await requireAllowedUser({ fresh: true });
     const body = Body.parse(await req.json());
 
-    await supabaseAdmin().from('push_subscriptions').upsert({
+    const { error: upsertErr } = await supabaseAdmin().from('push_subscriptions').upsert({
       user_id: userId,
       endpoint: body.endpoint,
       p256dh: body.keys.p256dh,
@@ -29,6 +29,7 @@ export async function POST(req: Request) {
       last_used_at: new Date().toISOString(),
       fail_count: 0,
     }, { onConflict: 'endpoint' });
+    if (upsertErr) throw upsertErr;
 
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
