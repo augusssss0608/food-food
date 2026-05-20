@@ -189,7 +189,8 @@ export function HomeContent() {
 
   async function signOut() {
     await createSupabaseBrowserClient().auth.signOut();
-    location.href = '/login';
+    // replace 而不是 href = ，不留 history entry（防右滑回到已登出的主頁）
+    location.replace('/login');
   }
 
   const today = new Date().toLocaleDateString('zh-TW', { month: 'long', day: 'numeric', weekday: 'long' });

@@ -37,11 +37,12 @@ export default async function AdminDebugPage() {
   const cronRuns = (cronRunsRes.data ?? []) as CronRunRow[];
 
   return (
-    <PageShell wide topAlign>
+    <PageShell wide>
       <header className="mb-10">
         <Link
           href="/"
           prefetch
+          replace
           className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
         >
           ← 主頁
@@ -109,11 +110,11 @@ export default async function AdminDebugPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Card className="p-4">
             <p className="text-[11px] uppercase tracking-[0.16em] text-text-3 font-mono mb-2">daily (last 7)</p>
-            <pre className="text-[11px] text-text-2 font-mono overflow-x-auto">{JSON.stringify(budgetDailyRes.data, null, 2)}</pre>
+            <pre data-horizontal-scroll className="text-[11px] text-text-2 font-mono overflow-x-auto">{JSON.stringify(budgetDailyRes.data, null, 2)}</pre>
           </Card>
           <Card className="p-4">
             <p className="text-[11px] uppercase tracking-[0.16em] text-text-3 font-mono mb-2">monthly fallback</p>
-            <pre className="text-[11px] text-text-2 font-mono overflow-x-auto">{JSON.stringify(budgetMonthlyRes.data, null, 2)}</pre>
+            <pre data-horizontal-scroll className="text-[11px] text-text-2 font-mono overflow-x-auto">{JSON.stringify(budgetMonthlyRes.data, null, 2)}</pre>
           </Card>
         </div>
       </Section>
@@ -178,7 +179,7 @@ function Table({
 }) {
   if (rows.length === 0) return <Empty>{empty}</Empty>;
   return (
-    <Card className="overflow-x-auto">
+    <Card className="overflow-x-auto" data-horizontal-scroll>
       <table className="w-full text-[12px]">
         <thead>
           <tr className="border-b border-hairline">

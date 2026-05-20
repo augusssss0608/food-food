@@ -23,13 +23,13 @@ export default async function InboxPage() {
   const { data } = await supa.from('inbox').select('*').order('created_at', { ascending: false }).limit(50);
   const items = (data ?? []) as InboxRow[];
 
-  // items 多 → 列表從頂向下滾，topAlign；空態 → 自動垂直置中
   return (
-    <PageShell topAlign={items.length > 0}>
+    <PageShell>
         <header className="mb-8">
           <Link
             href="/"
             prefetch
+            replace
             className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
           >
             ← 主頁

@@ -47,15 +47,16 @@ export function Drawer({
       */}
       <aside
         aria-hidden={!open}
-        className="bg-surface border-l border-hairline shadow-2xl shadow-black/60 flex flex-col"
+        className="bg-surface border-r border-hairline shadow-2xl shadow-black/60 flex flex-col"
         style={{
           position: 'fixed',
           top: 0,
-          right: 0,
+          left: 0,
           zIndex: 50,
           height: '100dvh',
           width: 'min(320px, 86vw)',
-          transform: open ? 'translateX(0)' : 'translateX(100%)',
+          // 漢堡在左 → 抽屜從左滑入；關閉時 translateX(-100%) 整體在 viewport 左側外
+          transform: open ? 'translateX(0)' : 'translateX(-100%)',
           transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)',
           paddingTop: 'env(safe-area-inset-top)',
           paddingBottom: 'env(safe-area-inset-bottom)',
@@ -111,8 +112,10 @@ export function DrawerItem({
     </>
   );
   if (href) {
-    // 用 next/link 而不是 <a>，Next.js 客户端导航即时切换，不再 MPA 全页重载
-    return <Link href={href} prefetch className={className} onClick={onClick}>{inner}</Link>;
+    // 用 next/link 替代 <a>，next.js 客戶端瞬切，不再 MPA 全頁重載。
+    // replace = true：不留可右滑回退的 history entry（防 iOS swipe-back，見
+    // no-swipe-back-gesture.tsx 對應策略）。
+    return <Link href={href} prefetch replace className={className} onClick={onClick}>{inner}</Link>;
   }
   return <button onClick={onClick} className={className}>{inner}</button>;
 }

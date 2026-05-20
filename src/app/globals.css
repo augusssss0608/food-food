@@ -43,6 +43,8 @@ html {
   color-scheme: dark;
   /* 防止任何 fixed/transform 元素短暂溢出导致整页可横向滚动（drawer 滑入时） */
   overflow-x: hidden;
+  /* 禁用 iOS 邊緣返回 / 前進手勢 + 任何水平 overscroll chaining */
+  overscroll-behavior-x: none;
 }
 
 body {
@@ -55,6 +57,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
   min-height: 100dvh;
   overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+
+main {
+  overscroll-behavior-x: none;
 }
 
 /* Decorative grain texture overlay — adds atmospheric depth.

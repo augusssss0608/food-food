@@ -77,7 +77,7 @@ export function SetupForm({
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? 'failed');
       toast.success(m === 'onboarding' ? '目標已生成' : '已儲存', m === 'onboarding' ? '即將進入主頁…' : '個人資料已更新');
-      setTimeout(() => { location.href = '/'; }, 900);
+      setTimeout(() => { location.replace('/'); }, 900);
     } catch (e: unknown) {
       toast.error(m === 'onboarding' ? '生成失敗' : '儲存失敗', (e as Error).message);
       setBusy(false);
@@ -90,6 +90,7 @@ export function SetupForm({
           <Link
             href="/"
             prefetch
+            replace
             className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
           >
             ← 主頁

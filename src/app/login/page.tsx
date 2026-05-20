@@ -26,7 +26,7 @@ export default function LoginPage() {
       setBusy(false);
       return;
     }
-    location.href = '/';
+    location.replace('/');
   }
 
   return (

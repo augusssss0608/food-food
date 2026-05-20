@@ -104,6 +104,7 @@ export default function SettingsPage() {
           <Link
             href="/"
             prefetch
+            replace
             className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
           >
             ← 主頁
