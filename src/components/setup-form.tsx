@@ -142,8 +142,8 @@ export function SetupForm({
             id="sex"
             label="性別"
             value={profile.sex}
-            onChange={(e) =>
-              setProfile({ ...profile, sex: (e.target as HTMLSelectElement).value as 'male' | 'female' })
+            onValueChange={(v) =>
+              setProfile({ ...profile, sex: v as 'male' | 'female' })
             }
             options={[
               { value: 'male', label: '男' },
