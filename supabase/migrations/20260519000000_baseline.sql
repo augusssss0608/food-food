@@ -152,7 +152,7 @@ create table app_private.app_owner (
   constraint single_owner check (id)
 );
 revoke all on app_private.app_owner from public, anon, authenticated;
-grant select, insert, update on app_private.app_owner to service_role;
+grant select, insert, update, delete on app_private.app_owner to service_role;
 
 create or replace function app_private.owner_user_id()
 returns uuid language sql stable security definer
@@ -213,7 +213,7 @@ create index ai_calls_month_cost_idx
   on app_private.ai_calls (user_id, started_at)
   where provider = 'anthropic_api' and status = 'succeeded';
 revoke all on app_private.ai_calls from public, anon, authenticated;
-grant select, insert, update on app_private.ai_calls to service_role;
+grant select, insert, update, delete on app_private.ai_calls to service_role;
 
 create table app_private.ai_budget_daily (
   user_id uuid not null,
@@ -224,7 +224,7 @@ create table app_private.ai_budget_daily (
   primary key (user_id, usage_date)
 );
 revoke all on app_private.ai_budget_daily from public, anon, authenticated;
-grant select, insert, update on app_private.ai_budget_daily to service_role;
+grant select, insert, update, delete on app_private.ai_budget_daily to service_role;
 
 create table app_private.ai_budget_monthly_fallback (
   user_id uuid not null,
@@ -234,7 +234,7 @@ create table app_private.ai_budget_monthly_fallback (
   primary key (user_id, usage_month)
 );
 revoke all on app_private.ai_budget_monthly_fallback from public, anon, authenticated;
-grant select, insert, update on app_private.ai_budget_monthly_fallback to service_role;
+grant select, insert, update, delete on app_private.ai_budget_monthly_fallback to service_role;
 
 create table app_private.cron_runs (
   job_name text not null,
@@ -247,7 +247,7 @@ create table app_private.cron_runs (
   primary key (job_name, run_key)
 );
 revoke all on app_private.cron_runs from public, anon, authenticated;
-grant select, insert, update on app_private.cron_runs to service_role;
+grant select, insert, update, delete on app_private.cron_runs to service_role;
 
 -- ============ Step 6: app_private RPCs ============
 

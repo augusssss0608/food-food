@@ -43,8 +43,10 @@ describe('RLS — service_role bypass', () => {
 // 两层 AND；任一不满足都拒绝。
 
 describe('RLS — authenticated user JWT matrix', () => {
-  const TEST_OWNER_EMAIL = 'rls-test-owner@food-food.local';
-  const STRANGER_EMAIL = 'rls-test-stranger@food-food.local';
+  // 每次跑用唯一邮箱避免 supabase auth 内存里残留的已注册用户（即使 listUsers 查不到也无法 createUser）
+  const stamp = Date.now();
+  const TEST_OWNER_EMAIL = `rls-test-owner-${stamp}@food-food.local`;
+  const STRANGER_EMAIL = `rls-test-stranger-${stamp}@food-food.local`;
   const PW = 'rls-test-pw-12345';
 
   let ownerId: string;
@@ -53,21 +55,20 @@ describe('RLS — authenticated user JWT matrix', () => {
   let strangerClient: ReturnType<typeof createClient>;
 
   async function ensureUser(email: string): Promise<{ id: string }> {
-    const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-    let user = list.users.find((u) => u.email === email);
-    if (user) {
-      await admin.auth.admin.updateUserById(user.id, { password: PW });
-      return user;
-    }
+    // 先尝试 createUser，如果 "already registered" 错误就用 list 找出来
     const r = await admin.auth.admin.createUser({ email, password: PW, email_confirm: true });
-    if (r.error || !r.data.user) {
-      // race condition? 重新 list
-      const { data: l2 } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-      user = l2.users.find((u) => u.email === email);
-      if (!user) throw new Error(`createUser('${email}') failed: ${r.error?.message ?? 'null user'}`);
-      return user;
+    if (r.data.user) return r.data.user;
+    // createUser 失败（多半因为已存在）→ listUsers 找
+    for (let page = 1; page <= 10; page++) {
+      const { data: list } = await admin.auth.admin.listUsers({ page, perPage: 100 });
+      const found = list.users.find((u) => u.email === email);
+      if (found) {
+        await admin.auth.admin.updateUserById(found.id, { password: PW });
+        return found;
+      }
+      if (list.users.length < 100) break;
     }
-    return r.data.user;
+    throw new Error(`ensureUser('${email}') 失败：createUser err=${r.error?.message ?? 'null'}, list search no hit`);
   }
 
   beforeAll(async () => {

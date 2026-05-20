@@ -65,3 +65,4 @@ Thumbs.db
 
 # test env (contains service_role)
 .env.test.local
+src/tests/e2e/.auth/owner.json
