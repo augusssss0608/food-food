@@ -24,7 +24,7 @@ export default async function InboxPage() {
 
   return (
     <main className="min-h-dvh flex flex-col px-5 py-8 max-w-md mx-auto">
-      <div className={`${items.length === 0 ? 'm-auto' : 'mt-2'} w-full anim-enter`}>
+      <div className={`${items.length === 0 ? 'm-auto' : 'mt-2'} w-full`}>
         <header className="flex items-baseline justify-between mb-8">
           <div>
             <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">inbox</p>

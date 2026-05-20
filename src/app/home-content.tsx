@@ -196,7 +196,7 @@ export function HomeContent() {
   return (
     <>
       <main className="min-h-dvh flex flex-col px-5 pt-6 pb-12 max-w-md mx-auto">
-        <div className="m-auto w-full anim-enter">
+        <div className="m-auto w-full">
           {/* Header */}
           <header className="flex items-start justify-between mb-7">
             <div>

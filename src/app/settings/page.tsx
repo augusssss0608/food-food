@@ -81,7 +81,7 @@ export default function SettingsPage() {
 
   return (
     <main className="min-h-dvh flex flex-col px-5 py-8 max-w-md mx-auto">
-      <div className="m-auto w-full anim-enter">
+      <div className="m-auto w-full">
         <header className="flex items-baseline justify-between mb-8">
           <div>
             <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">targets</p>

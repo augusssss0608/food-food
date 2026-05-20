@@ -26,7 +26,7 @@ export function DebugSecretGate() {
   }
 
   return (
-    <main className="min-h-dvh flex items-center px-6 max-w-md mx-auto anim-enter">
+    <main className="min-h-dvh flex items-center px-6 max-w-md mx-auto">
       <div className="w-full">
         <header className="mb-10 text-center">
           <p className="text-[11px] uppercase tracking-[0.32em] text-warm font-mono mb-3">restricted</p>

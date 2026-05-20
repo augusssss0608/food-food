@@ -53,7 +53,7 @@ export function SetupForm({ initial }: { initial?: SetupInitial } = {}) {
 
   return (
     <main className="min-h-dvh flex flex-col px-6 py-10 max-w-md mx-auto">
-      <div className="m-auto w-full anim-enter">
+      <div className="m-auto w-full">
         <header className="mb-8">
           <p className="text-[11px] uppercase tracking-[0.28em] text-accent font-mono mb-2">step 01 / 01</p>
           <h1 className="display-roman text-[36px] leading-[0.95]">

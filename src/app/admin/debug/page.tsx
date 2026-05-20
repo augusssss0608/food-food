@@ -36,7 +36,7 @@ export default async function AdminDebugPage() {
   const cronRuns = (cronRunsRes.data ?? []) as CronRunRow[];
 
   return (
-    <main className="min-h-dvh px-5 py-8 max-w-5xl mx-auto anim-enter">
+    <main className="min-h-dvh px-5 py-8 max-w-5xl mx-auto">
       <header className="flex items-baseline justify-between mb-10">
         <div>
           <p className="text-[11px] uppercase tracking-[0.24em] text-warm font-mono mb-1">restricted · admin</p>

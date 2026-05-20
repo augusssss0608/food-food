@@ -30,7 +30,7 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-dvh flex flex-col px-6 py-12 max-w-md mx-auto">
-      <div className="m-auto w-full anim-enter">
+      <div className="m-auto w-full">
         <header className="mb-12">
           <p className="text-[11px] uppercase tracking-[0.32em] text-accent font-mono mb-3">FOOD · FOOD</p>
           <h1 className="display-roman text-[44px] leading-[0.95] tracking-tight">
