@@ -1054,7 +1054,9 @@ import { AI_PRIMARY_PROVIDER, AI_FALLBACK_PROVIDER } from './config';
 import { withFallback } from './fallback';
 
 export function getAiProvider(): AiProvider {
-  if (process.env.NODE_ENV === 'test' && process.env.MOCK_AI === '1') {
+  // mock 入口：非生产 + MOCK_AI=1（覆盖 dev / test，整个开发期不必打真 API）
+  // 生产 guard 在 instantiate('mock') 里再兜一层，避免 config.ts 误改成 'mock' 污染线上
+  if (process.env.NODE_ENV !== 'production' && process.env.MOCK_AI === '1') {
     return new MockAiProvider();
   }
   const primary = instantiate(AI_PRIMARY_PROVIDER);
@@ -2605,7 +2607,7 @@ export class MockAiProvider implements AiProvider {
 }
 ```
 
-`getAiProvider()` 看 `process.env.NODE_ENV === 'test' && MOCK_AI=1` 切到 mock；生产路径里 `ProviderName === 'mock'` 会被 §5.3 production guard 拦下。
+`getAiProvider()` 看 `process.env.NODE_ENV !== 'production' && MOCK_AI=1` 切到 mock（dev / test 都覆盖）；生产路径里 `ProviderName === 'mock'` 会被 §5.3 production guard 拦下。
 
 **Mock fallback 集成测的 ai_calls 写入限制**：`MockAiProvider` 默认**不写 `ai_calls`**（fixture 直接返回，跳过 `startAiCall`/`finishAiCall`）。原因：fallback 测试里 primary 和 fallback 都是 `providerName='mock'`，若都写 ai_calls 会撞 `(correlation_id, provider)` UNIQUE。需要测 ai_calls 行为时，单独用真实 provider + 测试 supabase 实例。
 
