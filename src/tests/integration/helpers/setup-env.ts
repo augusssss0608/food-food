@@ -30,3 +30,4 @@ for (const [from, to] of Object.entries(ALIAS)) {
 if (!process.env.NEXT_PUBLIC_SITE_URL) process.env.NEXT_PUBLIC_SITE_URL = 'http://localhost:3000';
 if (!process.env.ALLOWED_USER_ID) process.env.ALLOWED_USER_ID = '00000000-0000-0000-0000-000000000001';
 if (!process.env.DEV_SECRET) process.env.DEV_SECRET = 'local-dev-secret';
+if (!process.env.CRON_SECRET) process.env.CRON_SECRET = 'local-cron-secret';

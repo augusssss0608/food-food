@@ -7,11 +7,15 @@ import { writeAppError } from '@/lib/errors/app-errors';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
 export async function GET(req: Request) {
+  // env 缺失时不能让 'Bearer undefined' 通过；显式拒绝
+  if (!process.env.CRON_SECRET || !process.env.ALLOWED_USER_ID) {
+    return new NextResponse('cron secret / owner not configured', { status: 500 });
+  }
   if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return new NextResponse('Unauthorized', { status: 401 });
   }
 
-  const ownerId = process.env.ALLOWED_USER_ID!;
+  const ownerId = process.env.ALLOWED_USER_ID;
   const results: Array<{ runKey: string; status: 'finished' | 'failed' | 'skipped'; error?: string }> = [];
 
   try {
@@ -63,7 +67,7 @@ async function checkBodyMetricsOverdue(userId: string): Promise<void> {
     .eq('user_id', userId).eq('type', 'body_metrics_overdue').eq('ref_id', refId).maybeSingle();
   if (existing) return;
 
-  await supa.from('inbox').insert({
+  const { error: inboxErr } = await supa.from('inbox').insert({
     user_id: userId,
     type: 'body_metrics_overdue',
     ref_id: refId,
@@ -71,6 +75,14 @@ async function checkBodyMetricsOverdue(userId: string): Promise<void> {
     body: '已经 3 天没记录体重',
     data: { type: 'body_metrics_overdue', lastMeasuredAt: lastMeasured },
   });
+  if (inboxErr && (inboxErr as { code?: string }).code !== '23505') {
+    // 23505 是同 ref_id 唯一冲突（今天已生成过 reminder），算正常 skip；其他错误必须显式记录
+    await writeAppError({
+      kind: 'cron', message: `body_metrics_overdue inbox insert failed: ${inboxErr.message}`,
+      context: { refId },
+    });
+    return;  // 不发 push，避免"无 inbox 但有 push"
+  }
 
   await trySendPushOnce({
     userId, type: 'body_metrics_overdue', refId,
