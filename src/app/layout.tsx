@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Fraunces, JetBrains_Mono, Geist } from 'next/font/google';
+import { NoBackGesture } from '@/components/no-back-gesture';
 import { ToastProvider } from '@/components/ui/toast';
 import './globals.css';
 
@@ -93,6 +94,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         ))}
       </head>
       <body className="antialiased" style={{ backgroundColor: '#0a0a0c' }}>
+        <NoBackGesture />
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
