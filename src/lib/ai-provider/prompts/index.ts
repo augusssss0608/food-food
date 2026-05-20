@@ -1,4 +1,4 @@
-export { SYSTEM_RULES, aiDataBlock } from './shared';
+export { SYSTEM_RULES, SYSTEM_RULES_STRUCTURED, SYSTEM_RULES_ADVICE, aiDataBlock } from './shared';
 export { NUTRITION_PROMPT_VERSION, buildNutritionPrompt } from './meal-extract';
 export { BODY_METRICS_PROMPT_VERSION, buildBodyMetricsPrompt } from './body-extract';
 export { INITIAL_TARGETS_PROMPT_VERSION, buildInitialTargetsPrompt } from './initial-targets';
