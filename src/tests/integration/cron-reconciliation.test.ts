@@ -5,9 +5,25 @@ delete (globalThis as { window?: unknown }).window;
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { createTestAdminClient, OWNER_UID } from './helpers/test-supabase';
 
-beforeAll(() => {
+beforeAll(async () => {
   process.env.MOCK_AI = '1';
   process.env.ALLOWED_USER_ID = OWNER_UID;
+  // 重置 ai-provider 单例缓存，确保 MOCK_AI=1 后续生效（防御 future 测序变动）
+  try {
+    const ai = await import('@/lib/ai-provider');
+    ai._resetAiProviderCache?.();
+  } catch { /* ignore */ }
+  // profile 是 reconcileAdvicePeriod 的硬依赖（catchup.ts 读 preferred_timezone + targets）
+  // seed.sql 不 seed profile；统一在文件级 beforeAll 写入，覆盖所有 describe 的 case
+  await createTestAdminClient().from('profiles').upsert({
+    user_id: OWNER_UID,
+    height_cm: 175, current_weight_kg: 70, birth_date: '1996-05-19',
+    sex: 'male', training_days_per_week: 3, preferred_timezone: 'Asia/Tokyo',
+    kcal_workout_day: 2400, kcal_rest_day: 2000, protein_g: 140,
+    carb_workout_day: 280, carb_rest_day: 200, fat_g: 60, fiber_g: 28,
+    targets_source: 'user_override', targets_updated_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  } as never, { onConflict: 'user_id' });
 });
 
 const supa = createTestAdminClient();
@@ -54,17 +70,7 @@ describe('reconcileAdvicePeriod', () => {
 });
 
 describe('findDueAdviceJobs artifact gap matrix', () => {
-  beforeAll(async () => {
-    await supa.from('profiles').upsert({
-      user_id: OWNER_UID,
-      height_cm: 175, current_weight_kg: 70, birth_date: '1996-05-19',
-      sex: 'male', training_days_per_week: 3, preferred_timezone: 'Asia/Tokyo',
-      kcal_workout_day: 2400, kcal_rest_day: 2000, protein_g: 140,
-      carb_workout_day: 280, carb_rest_day: 200, fat_g: 60, fiber_g: 28,
-      targets_source: 'user_override', targets_updated_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as never, { onConflict: 'user_id' });
-  });
+  // profile 在文件级 beforeAll 已 upsert，不需要重复
 
   it('advice+inbox exist but cron_runs.finished missing → period is still due', async () => {
     const { DateTime } = await import('luxon');

@@ -34,6 +34,11 @@ export default async function globalSetup(config: FullConfig) {
   await admin.from('advice').delete().eq('user_id', OWNER_UID);
   await admin.from('inbox').delete().eq('user_id', OWNER_UID);
   await admin.from('workout_days').delete().eq('user_id', OWNER_UID);
+  // 同步清 app_private 测试状态：budget cap / cron 锁 / push 去重，避免 E2E 复跑时旧状态阻塞
+  await admin.schema('app_private').from('ai_budget_daily').delete().eq('user_id', OWNER_UID);
+  await admin.schema('app_private').from('ai_budget_monthly_fallback').delete().eq('user_id', OWNER_UID);
+  await admin.schema('app_private').from('cron_runs').delete().eq('job_name', 'advice_catchup');
+  await admin.from('notification_deliveries').delete().eq('user_id', OWNER_UID);
 
   await admin.from('profiles').upsert({
     user_id: OWNER_UID,
