@@ -2,13 +2,16 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
+import { NumberInput, isEmptyNum } from '@/components/ui/number-input';
 import { useToast } from '@/components/ui/toast';
 
-const SECTIONS = [
+const NUM_SECTIONS = [
   { key: 'height_cm', label: '身高', suffix: 'cm' },
   { key: 'current_weight_kg', label: '體重', suffix: 'kg' },
   { key: 'training_days_per_week', label: '每週訓練', suffix: '天 / 週' },
 ] as const;
+
+type NumKey = (typeof NUM_SECTIONS)[number]['key'];
 
 export type SetupInitial = {
   height_cm?: number | null;
@@ -19,10 +22,17 @@ export type SetupInitial = {
   preferred_timezone?: string | null;
 };
 
+type State = {
+  height_cm: number | '';
+  current_weight_kg: number | '';
+  birth_date: string;
+  sex: 'male' | 'female';
+  training_days_per_week: number | '';
+  preferred_timezone: string;
+};
+
 export function SetupForm({ initial }: { initial?: SetupInitial } = {}) {
-  // 沒傳 initial（首次 onboarding，URL = /）→ 用合理 defaults
-  // 傳 initial（drawer 進 /setup 編輯）→ 用真實 profile，避免提交時 default 覆蓋
-  const [profile, setProfile] = useState({
+  const [profile, setProfile] = useState<State>({
     height_cm: initial?.height_cm ?? 175,
     current_weight_kg: initial?.current_weight_kg ?? 70,
     birth_date: initial?.birth_date ?? '1996-05-19',
@@ -34,6 +44,14 @@ export function SetupForm({ initial }: { initial?: SetupInitial } = {}) {
   const toast = useToast();
 
   async function submit() {
+    if (isEmptyNum(profile.height_cm) || isEmptyNum(profile.current_weight_kg) || isEmptyNum(profile.training_days_per_week)) {
+      toast.error('請填寫所有數值');
+      return;
+    }
+    if (!profile.birth_date) {
+      toast.error('請填寫生日');
+      return;
+    }
     setBusy(true);
     try {
       const r = await fetch('/api/setup', {
@@ -65,16 +83,13 @@ export function SetupForm({ initial }: { initial?: SetupInitial } = {}) {
         </header>
 
         <div className="space-y-4">
-          {SECTIONS.map((s) => (
-            <Input
+          {NUM_SECTIONS.map((s) => (
+            <NumberInput
               key={s.key}
               id={s.key}
               label={s.label}
-              type="number"
-              value={(profile as Record<string, string | number>)[s.key]}
-              onChange={(e) =>
-                setProfile({ ...profile, [s.key]: Number(e.target.value) })
-              }
+              value={profile[s.key]}
+              onValueChange={(v) => setProfile({ ...profile, [s.key as NumKey]: v })}
               suffix={s.suffix}
             />
           ))}

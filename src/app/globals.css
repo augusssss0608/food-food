@@ -82,8 +82,10 @@ main, header, aside, dialog, [data-toast-root] {
 /* fine hairline dividers */
 .hairline { background: linear-gradient(to right, transparent, var(--color-hairline-strong), transparent); }
 
-/* button & input focus rings */
-:where(button, a, [role="button"], input, textarea, select):focus-visible {
+/* 只给 button / link 类元素一个 focus outline；
+   input / textarea / select 自己外层 div 通过 focus-within:border-accent 显示状态，
+   再多一层 input 自身 outline 会出现「输入框里又套一圈高亮」的双重边框（截图反馈）。 */
+:where(button, a, [role="button"]):focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
   border-radius: 6px;

@@ -3,22 +3,24 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { NumberInput, isEmptyNum } from '@/components/ui/number-input';
 import { Card } from '@/components/ui/card';
 import { useToast } from '@/components/ui/toast';
 
-type ProfileRow = {
-  user_id: string;
-  kcal_workout_day: number | null;
-  kcal_rest_day: number | null;
-  protein_g: number | null;
-  carb_workout_day: number | null;
-  carb_rest_day: number | null;
-  fat_g: number | null;
-  fiber_g: number | null;
-};
+type NumKey =
+  | 'kcal_workout_day'
+  | 'kcal_rest_day'
+  | 'protein_g'
+  | 'carb_workout_day'
+  | 'carb_rest_day'
+  | 'fat_g'
+  | 'fiber_g';
 
-const FIELDS: { key: keyof Omit<ProfileRow, 'user_id'>; label: string; suffix: string; group: 'energy' | 'macro' }[] = [
+type DisplayProfile = {
+  user_id: string;
+} & Record<NumKey, number | ''>;
+
+const FIELDS: { key: NumKey; label: string; suffix: string; group: 'energy' | 'macro' }[] = [
   { key: 'kcal_workout_day', label: '訓練日卡路里', suffix: 'kcal', group: 'energy' },
   { key: 'kcal_rest_day', label: '休息日卡路里', suffix: 'kcal', group: 'energy' },
   { key: 'protein_g', label: '蛋白質', suffix: 'g', group: 'macro' },
@@ -28,8 +30,10 @@ const FIELDS: { key: keyof Omit<ProfileRow, 'user_id'>; label: string; suffix: s
   { key: 'fiber_g', label: '膳食纖維', suffix: 'g', group: 'macro' },
 ];
 
+const NUM_KEYS: NumKey[] = FIELDS.map((f) => f.key);
+
 export default function SettingsPage() {
-  const [profile, setProfile] = useState<ProfileRow | null>(null);
+  const [profile, setProfile] = useState<DisplayProfile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const supa = useMemo(() => createSupabaseBrowserClient(), []);
@@ -38,15 +42,31 @@ export default function SettingsPage() {
   useEffect(() => {
     supa.from('profiles').select('*').single().then(({ data, error }) => {
       if (error) { setLoadError(error.message); return; }
-      setProfile(data as ProfileRow | null);
+      const row = data as Record<NumKey, number | null> & { user_id: string };
+      setProfile({
+        user_id: row.user_id,
+        kcal_workout_day: row.kcal_workout_day ?? '',
+        kcal_rest_day: row.kcal_rest_day ?? '',
+        protein_g: row.protein_g ?? '',
+        carb_workout_day: row.carb_workout_day ?? '',
+        carb_rest_day: row.carb_rest_day ?? '',
+        fat_g: row.fat_g ?? '',
+        fiber_g: row.fiber_g ?? '',
+      });
     });
   }, [supa]);
 
   async function save() {
     if (!profile) return;
+    const empty = NUM_KEYS.find((k) => isEmptyNum(profile[k]));
+    if (empty) {
+      toast.error('請填寫所有欄位', `${empty} 不能為空`);
+      return;
+    }
     setBusy(true);
+    const payload = Object.fromEntries(NUM_KEYS.map((k) => [k, profile[k] as number])) as Record<NumKey, number>;
     const r = await supa.from('profiles').update({
-      ...profile,
+      ...payload,
       targets_source: 'user_override',
       targets_updated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -92,15 +112,12 @@ export default function SettingsPage() {
 
         <Section title="能量">
           {energy.map((f) => (
-            <Input
+            <NumberInput
               key={f.key}
               id={f.key}
               label={f.label}
-              type="number"
-              value={profile[f.key] ?? 0}
-              onChange={(e) =>
-                setProfile({ ...profile, [f.key]: Number(e.target.value) })
-              }
+              value={profile[f.key]}
+              onValueChange={(v) => setProfile({ ...profile, [f.key]: v })}
               suffix={f.suffix}
             />
           ))}
@@ -108,15 +125,12 @@ export default function SettingsPage() {
 
         <Section title="宏量營養">
           {macro.map((f) => (
-            <Input
+            <NumberInput
               key={f.key}
               id={f.key}
               label={f.label}
-              type="number"
-              value={profile[f.key] ?? 0}
-              onChange={(e) =>
-                setProfile({ ...profile, [f.key]: Number(e.target.value) })
-              }
+              value={profile[f.key]}
+              onValueChange={(v) => setProfile({ ...profile, [f.key]: v })}
               suffix={f.suffix}
             />
           ))}

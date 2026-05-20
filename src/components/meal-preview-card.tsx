@@ -3,6 +3,9 @@ import { useState } from 'react';
 import { AiMetaChip } from './ai-meta-chip';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
+import { InlineNumberInput } from './ui/inline-number-input';
+import { isEmptyNum } from './ui/number-input';
+import { useToast } from './ui/toast';
 import type { AiMeta } from '@/lib/ai-provider';
 
 export type MealPreview = {
@@ -26,6 +29,9 @@ const NUM_KEYS: { key: 'kcal' | 'protein_g' | 'carb_g' | 'fat_g' | 'fiber_g'; la
 
 type NumKey = (typeof NUM_KEYS)[number]['key'];
 
+type Editable = Omit<MealPreview, 'kcal' | 'protein_g' | 'carb_g' | 'fat_g' | 'fiber_g'>
+  & Record<NumKey, number | ''>;
+
 export function MealPreviewCard({
   initial, onConfirm, onCancel, busy = false,
 }: {
@@ -34,8 +40,18 @@ export function MealPreviewCard({
   onCancel: () => void;
   busy?: boolean;
 }) {
-  const [data, setData] = useState(initial);
+  const [data, setData] = useState<Editable>(initial);
   const [satiety, setSatiety] = useState<number | undefined>(undefined);
+  const toast = useToast();
+
+  function handleConfirm() {
+    const empty = NUM_KEYS.find((k) => isEmptyNum(data[k.key]));
+    if (empty) {
+      toast.error('請填寫所有數值', `${empty.label} 不能為空`);
+      return;
+    }
+    onConfirm(data as MealPreview, satiety);
+  }
 
   return (
     <Card className="overflow-hidden anim-enter">
@@ -51,27 +67,15 @@ export function MealPreviewCard({
 
       <div className="px-5 py-4 space-y-3">
         {NUM_KEYS.map((k) => (
-          <div key={k.key} className="flex items-center gap-3">
-            <label htmlFor={`mp-${k.key}`} className="text-[12px] uppercase tracking-[0.14em] text-text-3 font-mono w-20 flex-shrink-0">
-              {k.label}
-            </label>
-            <input
-              id={`mp-${k.key}`}
-              type="number"
-              value={data[k.key as NumKey]}
-              onChange={(e) =>
-                setData({ ...data, [k.key as NumKey]: Number(e.target.value) })
-              }
-              className={[
-                'flex-1 bg-surface-2 border border-hairline rounded-md px-3 outline-none',
-                'focus:border-accent/60 transition-colors text-text tabular',
-                k.big ? 'h-12 text-[20px] font-mono' : 'h-10 text-[14px]',
-              ].join(' ')}
-            />
-            {k.suffix && (
-              <span className="text-[12px] text-text-3 font-mono w-4">{k.suffix}</span>
-            )}
-          </div>
+          <InlineNumberInput
+            key={k.key}
+            id={`mp-${k.key}`}
+            label={k.label}
+            value={data[k.key]}
+            onValueChange={(v) => setData({ ...data, [k.key]: v })}
+            big={k.big}
+            suffix={k.suffix}
+          />
         ))}
 
         <div className="flex items-center gap-3 pt-1">
@@ -104,7 +108,7 @@ export function MealPreviewCard({
 
       <div className="flex gap-2 px-5 pb-5">
         <Button variant="secondary" onClick={onCancel} disabled={busy} className="flex-1">取消</Button>
-        <Button onClick={() => onConfirm(data, satiety)} loading={busy} className="flex-1">
+        <Button onClick={handleConfirm} loading={busy} className="flex-1">
           確認入庫
         </Button>
       </div>
