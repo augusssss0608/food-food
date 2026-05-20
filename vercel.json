@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/catchup", "schedule": "0 13 * * *" }
+  ],
+  "functions": {
+    "src/app/api/meals/extract/route.ts": { "maxDuration": 60 },
+    "src/app/api/body/extract/route.ts": { "maxDuration": 60 },
+    "src/app/api/advice/daily/route.ts": { "maxDuration": 60 },
+    "src/app/api/cron/catchup/route.ts": { "maxDuration": 60 }
+  }
+}
