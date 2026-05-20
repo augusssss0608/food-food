@@ -10,14 +10,25 @@ const SECTIONS = [
   { key: 'training_days_per_week', label: '每週訓練', suffix: '天 / 週' },
 ] as const;
 
-export function SetupForm() {
+export type SetupInitial = {
+  height_cm?: number | null;
+  current_weight_kg?: number | null;
+  birth_date?: string | null;
+  sex?: 'male' | 'female' | null;
+  training_days_per_week?: number | null;
+  preferred_timezone?: string | null;
+};
+
+export function SetupForm({ initial }: { initial?: SetupInitial } = {}) {
+  // 沒傳 initial（首次 onboarding，URL = /）→ 用合理 defaults
+  // 傳 initial（drawer 進 /setup 編輯）→ 用真實 profile，避免提交時 default 覆蓋
   const [profile, setProfile] = useState({
-    height_cm: 175,
-    current_weight_kg: 70,
-    birth_date: '1996-05-19',
-    sex: 'male' as 'male' | 'female',
-    training_days_per_week: 3,
-    preferred_timezone: 'Asia/Tokyo',
+    height_cm: initial?.height_cm ?? 175,
+    current_weight_kg: initial?.current_weight_kg ?? 70,
+    birth_date: initial?.birth_date ?? '1996-05-19',
+    sex: (initial?.sex ?? 'male') as 'male' | 'female',
+    training_days_per_week: initial?.training_days_per_week ?? 3,
+    preferred_timezone: initial?.preferred_timezone ?? 'Asia/Tokyo',
   });
   const [busy, setBusy] = useState(false);
   const toast = useToast();
