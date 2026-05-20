@@ -1,6 +1,11 @@
 'use client';
 import { useEffect, type ReactNode } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+
+// drawer 打開時立即 prefetch 這幾個目標，讓首次點擊用 RSC cache 瞬切。
+// 不 prefetch /admin/debug：force-dynamic + 5 個 Supabase 查詢，太重且低頻。
+const PREFETCH_ON_OPEN = ['/settings', '/setup', '/inbox'];
 
 export function Drawer({
   open,
@@ -13,16 +18,20 @@ export function Drawer({
   children: ReactNode;
   title?: string;
 }) {
+  const router = useRouter();
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
+    // drawer 一打開就立即 prefetch 常用目標的 RSC payload，等用戶點 item 已在 cache 裡
+    for (const href of PREFETCH_ON_OPEN) router.prefetch(href);
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = '';
     };
-  }, [open, onClose]);
+  }, [open, onClose, router]);
 
   return (
     <>

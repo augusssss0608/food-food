@@ -28,11 +28,15 @@ export function PhotoInput({
 
   return (
     <>
+      {/*
+        移除 `capture="environment"`：原本強制走後置鏡頭，沒給選相簿的入口。
+        無 capture 屬性時，iOS Safari 會彈原生 action sheet：
+        「拍照或錄影 / 照片圖庫 / 選擇檔案」，兩種來源都支持。
+      */}
       <input
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         disabled={busy}
         onChange={(e) => {
           const f = e.target.files?.[0];
