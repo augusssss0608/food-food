@@ -25,30 +25,39 @@ export function Drawer({
 
   return (
     <>
-      {/* overlay — 輕度 dim（35%），主畫面仍可見；不做 backdrop-blur */}
+      {/* overlay：輕度 dim，主畫面仍可見 */}
       <div
         aria-hidden={!open}
-        className={[
-          'fixed inset-0 z-40 bg-ink/35 transition-opacity duration-200',
-          open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
-        ].join(' ')}
         onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 40,
+          background: 'rgba(10,10,12,0.35)',
+          opacity: open ? 1 : 0,
+          pointerEvents: open ? 'auto' : 'none',
+          transition: 'opacity 200ms ease-out',
+        }}
       />
+      {/*
+        drawer 用全 inline style 寫死定位 / 尺寸 / transform，避開 Tailwind v4 對
+        `w-[min(320px,86vw)]`、`translate-x-full`、`transform` 工具類解析失敗的可能。
+        關閉時 translateX(100%)，drawer 整體在 viewport 右側外，不會半截露出來。
+      */}
       <aside
         aria-hidden={!open}
-        className={[
-          // 改用 w-80 + max-w-[86vw]，避開 Tailwind v4 對 w-[min(...)] 解析的不確定
-          // 同時用內聯 style 把 right:0 / width 寫死，雙重保險
-          'fixed top-0 z-50 h-dvh w-80 max-w-[86vw] bg-surface border-l border-hairline shadow-2xl shadow-black/60',
-          'flex flex-col',
-          'transform transition-transform duration-300',
-          open ? 'translate-x-0' : 'translate-x-full',
-        ].join(' ')}
+        className="bg-surface border-l border-hairline shadow-2xl shadow-black/60 flex flex-col"
         style={{
+          position: 'fixed',
+          top: 0,
           right: 0,
+          zIndex: 50,
+          height: '100dvh',
+          width: 'min(320px, 86vw)',
+          transform: open ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)',
           paddingTop: 'env(safe-area-inset-top)',
           paddingBottom: 'env(safe-area-inset-bottom)',
-          transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
         <div className="flex items-center justify-between px-5 h-14 border-b border-hairline flex-shrink-0">
@@ -91,7 +100,6 @@ export function DrawerItem({
       <span className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${danger ? 'bg-danger/10' : 'bg-surface-2'}`}>
         {icon}
       </span>
-      {/* truncate 兜底：即便容器寬度算錯也不會跑出邊 */}
       <span className="flex-1 min-w-0">
         <span className="block text-[14px] font-medium leading-tight truncate">{label}</span>
         {hint && <span className="block text-[12px] text-text-3 mt-0.5 truncate">{hint}</span>}
