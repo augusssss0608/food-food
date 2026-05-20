@@ -127,7 +127,7 @@ describe('RLS — authenticated user JWT matrix', () => {
     const { error } = await strangerClient.from('meals').insert({
       user_id: strangerId, ate_at: new Date().toISOString(), source: 'manual',
       kcal: 100, client_mutation_id: crypto.randomUUID(),
-    });
+    } as never);
     expect(error?.message ?? '').toMatch(/violates row-level security|new row violates/i);
   });
 
@@ -136,7 +136,7 @@ describe('RLS — authenticated user JWT matrix', () => {
       user_id: strangerId,  // 故意写错 user_id
       ate_at: new Date().toISOString(), source: 'manual',
       kcal: 100, client_mutation_id: crypto.randomUUID(),
-    });
+    } as never);
     expect(error?.message ?? '').toMatch(/violates row-level security|new row violates/i);
   });
 
