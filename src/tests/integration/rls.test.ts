@@ -53,7 +53,7 @@ describe('RLS — authenticated user JWT matrix', () => {
   let strangerClient: ReturnType<typeof createClient>;
 
   async function ensureUser(email: string): Promise<{ id: string }> {
-    const { data: list } = await admin.auth.admin.listUsers();
+    const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
     let user = list.users.find((u) => u.email === email);
     if (user) {
       await admin.auth.admin.updateUserById(user.id, { password: PW });
@@ -62,7 +62,7 @@ describe('RLS — authenticated user JWT matrix', () => {
     const r = await admin.auth.admin.createUser({ email, password: PW, email_confirm: true });
     if (r.error || !r.data.user) {
       // race condition? 重新 list
-      const { data: l2 } = await admin.auth.admin.listUsers();
+      const { data: l2 } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
       user = l2.users.find((u) => u.email === email);
       if (!user) throw new Error(`createUser('${email}') failed: ${r.error?.message ?? 'null user'}`);
       return user;
