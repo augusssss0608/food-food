@@ -12,6 +12,16 @@ const compat = new FlatCompat({
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
+    rules: {
+      // `_` 前缀变量约定为"明知未用"——保留接口签名 / 解构丢字段时常用
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+      }],
+    },
+  },
+  {
     ignores: [
       "node_modules/**",
       ".next/**",

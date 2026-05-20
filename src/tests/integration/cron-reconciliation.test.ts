@@ -90,8 +90,6 @@ describe('findDueAdviceJobs artifact gap matrix', () => {
 
     const { findDueAdviceJobs } = await import('@/lib/cron/catchup');
     const jobs = await findDueAdviceJobs(OWNER_UID);
-    // eslint-disable-next-line no-console
-    console.log('jobs:', jobs.length, 'expectedRunKey:', runKey, 'allRunKeys:', jobs.map((j) => j.runKey));
     expect(jobs.length).toBeGreaterThan(0);
     expect(jobs.some((j) => j.runKey === runKey)).toBe(true);
   });

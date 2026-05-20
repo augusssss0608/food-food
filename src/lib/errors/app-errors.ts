@@ -32,11 +32,9 @@ export async function writeAppError(input: {
       stack: input.stack?.slice(0, 4000),
     });
     if (error) {
-      // eslint-disable-next-line no-console
       console.error('[writeAppError] insert failed:', error.message, 'kind=', input.kind);
     }
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.error('[writeAppError] threw:', e instanceof Error ? e.message : e, 'kind=', input.kind);
   }
 }

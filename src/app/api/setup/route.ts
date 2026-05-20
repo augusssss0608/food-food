@@ -50,10 +50,13 @@ export async function POST(req: Request) {
       }
     }
 
+    // provider 返回的 targets 带 _meta（AI 调用元数据），profiles 表没这列；剥离再 upsert
+    const { _meta: _meta, ...targetsForDb } = targets as typeof targets & { _meta?: unknown };
+    void _meta;
     const { error: upsertErr } = await supabaseAdmin().from('profiles').upsert({
       user_id: userId,
       ...body,
-      ...targets,
+      ...targetsForDb,
       targets_source: 'ai_initial',
       targets_updated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
