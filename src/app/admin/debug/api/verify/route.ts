@@ -11,8 +11,11 @@ export async function POST(req: Request) {
     const provided = req.headers.get('x-dev-secret') ?? '';
     const expected = process.env.DEV_SECRET ?? '';
     if (!expected) return new NextResponse('dev_secret_not_configured', { status: 500 });
-    if (provided.length !== expected.length) return new NextResponse('forbidden', { status: 403 });
-    if (!timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) {
+    // 完全 constant-time：把 provided 填充/截断到 expected.length，无论长度都跑 timingSafeEqual
+    const providedBuf = Buffer.alloc(expected.length);
+    Buffer.from(provided).copy(providedBuf, 0, 0, Math.min(provided.length, expected.length));
+    const eq = timingSafeEqual(providedBuf, Buffer.from(expected));
+    if (!eq || provided.length !== expected.length) {
       return new NextResponse('forbidden', { status: 403 });
     }
 

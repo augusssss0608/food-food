@@ -30,7 +30,14 @@ export async function syncDrafts(ownerUserId: string, upload: UploadFn): Promise
       });
       continue;
     }
-    if (d.attempts >= 5) continue;
+    // 5 次失败后标 'failed'，主页 pending 计数不再算它；用户可在 admin/debug 看 failed 草稿后手动处理
+    if (d.attempts >= 5) {
+      await db.drafts.update(d.id, {
+        status: 'failed', lastError: `attempts cap (5) reached; last: ${d.lastError ?? 'unknown'}`,
+        updatedAt: new Date().toISOString(),
+      });
+      continue;
+    }
 
     await db.drafts.update(d.id, { status: 'syncing', updatedAt: new Date().toISOString() });
     try {

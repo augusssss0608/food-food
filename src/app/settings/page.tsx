@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 
 type ProfileRow = {
@@ -19,10 +19,15 @@ type NumKey = typeof NUM_KEYS[number];
 export default function SettingsPage() {
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const supa = createSupabaseBrowserClient();
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // useMemo 保证 client 引用稳定（避免每次 render 新对象 → useEffect deps 变 → 无限请求）
+  const supa = useMemo(() => createSupabaseBrowserClient(), []);
 
   useEffect(() => {
-    supa.from('profiles').select('*').single().then(({ data }) => setProfile(data as ProfileRow | null));
+    supa.from('profiles').select('*').single().then(({ data, error }) => {
+      if (error) { setLoadError(error.message); return; }
+      setProfile(data as ProfileRow | null);
+    });
   }, [supa]);
 
   async function save() {
@@ -37,6 +42,7 @@ export default function SettingsPage() {
     setMsg(r.error ? `错误: ${r.error.message}` : '已保存');
   }
 
+  if (loadError) return <main className="p-4"><p className="text-red-600">读取 profile 失败：{loadError}（可能未登录）</p></main>;
   if (!profile) return <p>loading...</p>;
   return (
     <main className="p-4 space-y-3 max-w-md mx-auto">
