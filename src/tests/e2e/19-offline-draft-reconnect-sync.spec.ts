@@ -19,7 +19,7 @@ test('19 offline-draft-reconnect-sync: 离线写草稿 → 上线自动同步 �
 
   await context.setOffline(true);
   await page.getByRole('button', { name: /牛肉糙米饭/ }).click();
-  await expect(page.getByText(/已存入本地草稿/)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/離線已暫存/)).toBeVisible({ timeout: 10_000 });
   const drafts = await readDraftsInBrowser(page);
   expect(drafts).toHaveLength(1);
   expect(drafts[0]!.status).toBe('pending');

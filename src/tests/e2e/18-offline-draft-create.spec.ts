@@ -16,8 +16,10 @@ test('18 offline-draft-create: 离线点 preset → 提示 + IndexedDB pending',
 
   await context.setOffline(true);
   await page.getByRole('button', { name: /牛肉糙米饭/ }).click();
-  await expect(page.getByText(/已存入本地草稿/)).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText(/草稿待同步/)).toBeVisible({ timeout: 5_000 });
+  // toast.info('離線已暫存', '恢復網路後自動同步')
+  await expect(page.getByText(/離線已暫存/)).toBeVisible({ timeout: 10_000 });
+  // 主頁右上待同步 chip: `{count} 待同步`
+  await expect(page.getByText(/待同步/)).toBeVisible({ timeout: 5_000 });
 
   const drafts = await readDraftsInBrowser(page);
   expect(drafts).toHaveLength(1);

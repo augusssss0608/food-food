@@ -23,6 +23,6 @@ test('15 body-overdue-inbox-dedup: 旧 body 触发 "该称重了"，同天重复
   const { data } = await supa.from('inbox').select('*')
     .eq('user_id', OWNER_UID).eq('type', 'body_metrics_overdue');
   expect(data).toHaveLength(1);
-  expect((data![0] as { title: string }).title).toContain('该称重了');
+  expect((data![0] as { title: string }).title).toContain('該稱重了');
   expect((data![0] as { ref_id: string }).ref_id).toContain('body_metrics_overdue:');
 });

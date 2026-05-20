@@ -19,12 +19,12 @@ test('23 push-subscribe-mocked-api: mock Push API → 真实 fetch /api/push/sub
     (r) => r.url().includes('/api/push/subscribe') && r.request().method() === 'POST',
     { timeout: 30_000 },
   );
-  await page.getByRole('button', { name: /开启推送通知/ }).click();
+  await page.getByRole('button', { name: /開啟推送/ }).click();
   const r = await subResp;
   expect(r.status()).toBe(200);
   expect((await r.json()).ok).toBe(true);
 
-  await expect(page.getByText(/推送已开启/)).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText(/推送已開啟/)).toBeVisible({ timeout: 5_000 });
 
   const { data } = await supa.from('push_subscriptions').select('*').eq('user_id', OWNER_UID);
   expect(data).toHaveLength(1);
@@ -33,5 +33,5 @@ test('23 push-subscribe-mocked-api: mock Push API → 真实 fetch /api/push/sub
 
   // 关键：reload 后 getSubscription() 应从持久化状态读出已订阅，UI 仍显示 "推送已开启"
   await page.reload();
-  await expect(page.getByText(/推送已开启/)).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText(/推送已開啟/)).toBeVisible({ timeout: 5_000 });
 });

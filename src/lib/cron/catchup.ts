@@ -162,8 +162,8 @@ export async function reconcileAdvicePeriod(job: ReconcileJob): Promise<{ advice
     userId: job.userId,
     type: `${job.adviceKind}_advice_ready` as 'weekly_advice_ready' | 'monthly_advice_ready',
     refId: `${job.adviceKind}:${job.periodStart}`,
-    title: job.adviceKind === 'weekly' ? '本周建议已生成' : '本月建议已生成',
-    body: '点开 App 查看',
+    title: job.adviceKind === 'weekly' ? '本週建議已生成' : '本月建議已生成',
+    body: '點開 App 查看',
     data: { adviceId: advice.id, periodStart: job.periodStart },
   });
 

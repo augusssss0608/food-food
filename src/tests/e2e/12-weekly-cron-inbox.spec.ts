@@ -39,5 +39,5 @@ test('12 weekly-cron-inbox: cron 触发后 weekly advice + inbox + cron_runs fin
   expect((runs ?? []).length).toBeGreaterThanOrEqual(1);
 
   await page.goto('/inbox');
-  await expect(page.getByText(/本周建议/).first()).toBeVisible();
+  await expect(page.getByText(/本週建議/).first()).toBeVisible();
 });

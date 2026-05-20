@@ -9,13 +9,13 @@ test.beforeEach(async () => {
 
 test('02 setup-initial-targets: 提交后 profile 写入，targets_source=ai_initial', async ({ page }) => {
   await page.goto('/setup');
-  await expect(page.getByRole('heading', { name: /首次设置/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /告訴我你的起點/ })).toBeVisible();
 
   const respP = page.waitForResponse(
     (r) => r.url().includes('/api/setup') && r.request().method() === 'POST',
     { timeout: 30_000 },
   );
-  await page.getByRole('button', { name: /生成初始目标/ }).click();
+  await page.getByRole('button', { name: /生成初始目標/ }).click();
   const r = await respP;
   expect(r.status()).toBe(200);
   const j = await r.json();

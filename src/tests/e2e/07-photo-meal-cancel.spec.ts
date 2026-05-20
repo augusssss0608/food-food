@@ -20,11 +20,11 @@ test('07 photo-meal-cancel: 上传 → preview 出现 → 点取消 → DB 无 r
   );
   await page.locator('input[type="file"]').first().setInputFiles(FIXTURE);
   await extractResp;
-  await expect(page.getByRole('button', { name: /确认入库/ })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: /確認入庫/ })).toBeVisible({ timeout: 10_000 });
 
   // 点 "取消" → preview 应消失，file input 回来（"拍餐"小节下）
   await page.getByRole('button', { name: /^取消$/ }).first().click();
-  await expect(page.getByRole('button', { name: /确认入库/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /確認入庫/ })).toHaveCount(0);
 
   // DB 没有新 meal
   const { data } = await supa.from('meals').select('*').eq('user_id', OWNER_UID);

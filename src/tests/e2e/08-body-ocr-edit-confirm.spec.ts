@@ -25,7 +25,8 @@ test('08 body-ocr-edit-confirm: 上传 body 图 → 编辑 weight → 确认；b
   expect(extractR.status()).toBe(200);
 
   // BodyPreviewCard 出现：含 weight_kg/body_fat_pct 等 input
-  const weightInput = page.locator('label:has-text("weight_kg:") input').first();
+  // UI 用 Input 组件，id `bp-weight_kg`，比 label 文字版本稳
+  const weightInput = page.locator('#bp-weight_kg');
   await expect(weightInput).toBeVisible({ timeout: 10_000 });
   await weightInput.fill('72.5');
 
@@ -33,7 +34,7 @@ test('08 body-ocr-edit-confirm: 上传 body 图 → 编辑 weight → 确认；b
     (r) => r.url().includes('/api/body/log') && r.request().method() === 'POST',
     { timeout: 30_000 },
   );
-  await page.getByRole('button', { name: /确认入库/ }).click();
+  await page.getByRole('button', { name: /確認入庫/ }).click();
   const r = await logResp;
   expect(r.status()).toBe(200);
   const j = await r.json();

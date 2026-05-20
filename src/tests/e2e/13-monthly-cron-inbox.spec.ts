@@ -30,5 +30,5 @@ test('13 monthly-cron-inbox: cron 触发 → monthly advice + inbox + 页面显�
   expect((inbox ?? []).length).toBeGreaterThanOrEqual(1);
 
   await page.goto('/inbox');
-  await expect(page.getByText(/本月建议/).first()).toBeVisible();
+  await expect(page.getByText(/本月建議/).first()).toBeVisible();
 });
