@@ -46,4 +46,32 @@ describe('sanitizeContext', () => {
     const arr = Array.from({ length: 50 }, (_, i) => i);
     expect((sanitizeContext(arr) as number[]).length).toBe(20);
   });
+
+  it('omits camelCase / snake_case image variants', () => {
+    const out = sanitizeContext({
+      imageBase64: 'huge', image_url: 'u', photoData: 'p', base64_image: 'b', user: 'alice',
+    }) as Record<string, string>;
+    expect(out.imageBase64).toBe('[OMITTED]');
+    expect(out.image_url).toBe('[OMITTED]');
+    expect(out.photoData).toBe('[OMITTED]');
+    expect(out.base64_image).toBe('[OMITTED]');
+    expect(out.user).toBe('alice');
+  });
+
+  it('redacts authentication / authorization keys', () => {
+    const out = sanitizeContext({
+      authentication: 'Basic xxx', authorization: 'Bearer yyy', user: 'alice',
+    }) as Record<string, string>;
+    expect(out.authentication).toBe('[REDACTED]');
+    expect(out.authorization).toBe('[REDACTED]');
+    expect(out.user).toBe('alice');
+  });
+
+  it('redacts secrets in strings BEFORE truncation', () => {
+    // 长字符串里的 Bearer token 必须先被 redact，再被截断；否则截断保留了部分 secret
+    const input = 'x'.repeat(450) + ' Bearer abc.def.ghi ' + 'y'.repeat(200);
+    const out = sanitizeContext(input) as string;
+    expect(out).toContain('Bearer [REDACTED]');
+    expect(out).not.toContain('abc.def.ghi');
+  });
 });

@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import type { AiCallKind, ProviderName, CallTrigger } from './interface';
 import type { AnthropicUsage } from './retry';
+import { writeAppError } from '@/lib/errors/app-errors';
 
 export async function startAiCall(input: {
   userId: string;
@@ -39,7 +40,7 @@ export async function finishAiCall(callId: string, input: {
   errorCode?: string;
   errorMessage?: string;
 }): Promise<void> {
-  await supabaseAdmin().schema('app_private').from('ai_calls').update({
+  const { error } = await supabaseAdmin().schema('app_private').from('ai_calls').update({
     status: input.status,
     attempt: input.attempt ?? null,
     input_tokens: input.usage?.input_tokens ?? null,
@@ -52,4 +53,12 @@ export async function finishAiCall(callId: string, input: {
     error_message: input.errorMessage ?? null,
     finished_at: new Date().toISOString(),
   }).eq('id', callId);
+  if (error) {
+    // 不抛：调用方流程已结束，update 失败只会留 'started' 脏行，写 app_errors 让运维能查
+    await writeAppError({
+      kind: 'ai_call',
+      context: { finishAiCall: callId, terminalStatus: input.status, db_error: error.message },
+      message: `finishAiCall failed for ${callId}: ${error.message}`,
+    });
+  }
 }

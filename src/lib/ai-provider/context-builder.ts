@@ -24,7 +24,7 @@ export async function fetchAdviceInputData(input: FetchAdviceInput) {
   const mealsRangeUtc = periodUtcRange(mealsRange.startDate, mealsRange.endDate, timezone);
   const bodyRangeUtc = periodUtcRange(bodyMetricsRange.startDate, bodyMetricsRange.endDate, timezone);
 
-  const [{ data: meals }, { data: bodyMetrics }] = await Promise.all([
+  const [mealsRes, bodyRes] = await Promise.all([
     supabaseAdmin().from('meals').select('*')
       .eq('user_id', userId)
       .gte('ate_at', mealsRangeUtc.startUtc).lt('ate_at', mealsRangeUtc.endExclusiveUtc),
@@ -33,8 +33,12 @@ export async function fetchAdviceInputData(input: FetchAdviceInput) {
       .gte('measured_at', bodyRangeUtc.startUtc).lt('measured_at', bodyRangeUtc.endExclusiveUtc),
   ]);
 
+  // DB 查询失败必须抛，避免上下文缺失的 advice 生成（看似成功的脏 advice 比错误更危险）
+  if (mealsRes.error) throw new Error(`fetchAdviceInputData: meals query failed: ${mealsRes.error.message}`);
+  if (bodyRes.error) throw new Error(`fetchAdviceInputData: body_metrics query failed: ${bodyRes.error.message}`);
+
   return {
-    meals: stripAiRawJson((meals as { ai_raw_json?: unknown }[] | null) ?? []),
-    body_metrics: stripAiRawJson((bodyMetrics as { ai_raw_json?: unknown }[] | null) ?? []),
+    meals: stripAiRawJson((mealsRes.data as { ai_raw_json?: unknown }[] | null) ?? []),
+    body_metrics: stripAiRawJson((bodyRes.data as { ai_raw_json?: unknown }[] | null) ?? []),
   };
 }
