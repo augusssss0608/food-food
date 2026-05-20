@@ -12,13 +12,8 @@ type Metric = {
 };
 
 /**
- * 今日摘要：4 個指標的進度展示。
- * 用戶要求兩種視覺都做出來比較，先並存：上方環、下方條。挑掉哪邊看實機體感。
- *
- * over-target 處理（codex 收斂）：
- * - ring stroke 視覺仍 clamp 100%（不繞第二圈）
- * - ring center text 顯示「實際」百分比（如 118%），文字 warm
- * - bar fill 滿格、文字 warm，bar 顏色維持避免四欄都同色辨識度下降
+ * 今日摘要：4 個指標環（kcal / 蛋白 / 碳水 / 脂肪）。
+ * over-target：ring stroke clamp 100% 不繞第二圈，center text 顯示實際 % 並 warm 色。
  */
 export function TodaySummary({
   consumed,
@@ -47,14 +42,8 @@ export function TodaySummary({
         )}
       </div>
 
-      {/* Rings — 上方 */}
-      <div className="grid grid-cols-4 gap-2 mb-4">
+      <div className="grid grid-cols-4 gap-2">
         {metrics.map((m) => <RingCard key={m.key} m={m} />)}
-      </div>
-
-      {/* Bars — 下方 */}
-      <div className="bg-surface border border-hairline rounded-xl px-4 py-3 space-y-3">
-        {metrics.map((m) => <BarRow key={m.key} m={m} />)}
       </div>
     </section>
   );
@@ -62,8 +51,8 @@ export function TodaySummary({
 
 function RingCard({ m }: { m: Metric }) {
   const pctRaw = m.target > 0 ? (m.consumed / m.target) * 100 : 0;
-  const pctVisual = Math.min(100, pctRaw); // ring stroke 不繞第二圈
-  const pctDisplay = Math.round(pctRaw);   // 中心文字顯示實際值
+  const pctVisual = Math.min(100, pctRaw);
+  const pctDisplay = Math.round(pctRaw);
   const over = pctRaw > 100;
   const radius = 24;
   const circ = 2 * Math.PI * radius;
@@ -95,38 +84,8 @@ function RingCard({ m }: { m: Metric }) {
       </svg>
       <p className="text-[10px] uppercase tracking-wide text-text-3 font-mono mt-1">{m.label}</p>
       <p className="text-[10px] tabular text-text-4 font-mono">
-        {Math.round(m.consumed)}<span className="text-text-4">/{m.target}</span>
+        {Math.round(m.consumed)}{m.unit}<span className="text-text-4">/{m.target}{m.unit}</span>
       </p>
-    </div>
-  );
-}
-
-function BarRow({ m }: { m: Metric }) {
-  const pctRaw = m.target > 0 ? (m.consumed / m.target) * 100 : 0;
-  const pctVisual = Math.min(100, pctRaw);
-  const remaining = Math.max(0, m.target - m.consumed);
-  const over = pctRaw > 100;
-
-  return (
-    <div>
-      <div className="flex items-baseline justify-between mb-1">
-        <span className="text-[12px] uppercase tracking-wide text-text-3 font-mono">{m.label}</span>
-        <span className={`text-[11px] tabular font-mono ${over ? 'text-warm' : 'text-text-2'}`}>
-          {Math.round(m.consumed)}<span className="text-text-4">/{m.target}{m.unit}</span>
-          {' · '}
-          {over ? (
-            <span>超 {Math.round(m.consumed - m.target)}{m.unit}</span>
-          ) : (
-            <span className="text-text-4">差 {Math.round(remaining)}{m.unit}</span>
-          )}
-        </span>
-      </div>
-      <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
-        <div
-          className="h-full rounded-full transition-all"
-          style={{ width: `${pctVisual}%`, background: m.color }}
-        />
-      </div>
     </div>
   );
 }
