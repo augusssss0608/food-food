@@ -1,6 +1,5 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
 import { FITNESS_MEAL_PRESETS } from '@/lib/fitness-meals';
 import { PhotoInput } from '@/components/photo-input';
 import { MealPreviewCard, type MealPreview } from '@/components/meal-preview-card';
@@ -9,6 +8,11 @@ import { PushEnableButton } from '@/components/push-enable-button';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { saveDraft, syncDrafts } from '@/lib/drafts/sync';
 import { getDraftsDb, type LocalDraft } from '@/lib/drafts/db';
+import { Button } from '@/components/ui/button';
+import { Card, SectionLabel } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
+import { Drawer, DrawerItem } from '@/components/ui/drawer';
+import { useToast } from '@/components/ui/toast';
 
 type DraftPayload = { endpoint: string; body: Record<string, unknown>; idempotencyKey: string };
 
@@ -24,17 +28,23 @@ async function uploadDraft(draft: LocalDraft): Promise<{ id: string }> {
   return { id: j.mealId ?? j.id ?? draft.id };
 }
 
-function isOfflineError(e: unknown): boolean {
-  return e instanceof TypeError;
-}
+const isOfflineError = (e: unknown): boolean => e instanceof TypeError;
 
 export function HomeContent() {
   const [mealPreview, setMealPreview] = useState<MealPreview | null>(null);
   const [bodyPreview, setBodyPreview] = useState<BodyPreview | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [draftCount, setDraftCount] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // 状态：busy 区分各 button，给精细 loading 态
+  const [presetBusy, setPresetBusy] = useState<string | null>(null);
+  const [mealExtractBusy, setMealExtractBusy] = useState(false);
+  const [bodyExtractBusy, setBodyExtractBusy] = useState(false);
+  const [confirmMealBusy, setConfirmMealBusy] = useState(false);
+  const [confirmBodyBusy, setConfirmBodyBusy] = useState(false);
+  const [adviceBusy, setAdviceBusy] = useState(false);
+  const toast = useToast();
 
   const refreshDraftCount = useCallback(async () => {
     if (!userId) return;
@@ -56,7 +66,11 @@ export function HomeContent() {
     return () => window.removeEventListener('online', tick);
   }, [userId, refreshDraftCount]);
 
-  async function submit(type: 'meal' | 'body_metric', endpoint: string, body: Record<string, unknown>): Promise<unknown | null> {
+  async function submit(
+    type: 'meal' | 'body_metric',
+    endpoint: string,
+    body: Record<string, unknown>,
+  ): Promise<unknown | null> {
     const idempotencyKey = crypto.randomUUID();
     try {
       const r = await fetch(endpoint, {
@@ -74,22 +88,25 @@ export function HomeContent() {
       if (isOfflineError(e) && userId) {
         await saveDraft(userId, type, { endpoint, body, idempotencyKey } satisfies DraftPayload);
         await refreshDraftCount();
-        setError('离线，已存入本地草稿，恢复网络后自动同步');
+        toast.info('离线已暂存', '恢复网络后自动同步');
         return null;
       }
-      setError(err.message ?? 'unknown');
+      toast.error('提交失败', err.message ?? 'unknown');
       return null;
     }
   }
 
-  async function pickFitnessMeal(key: string) {
+  async function pickFitnessMeal(key: string, name: string) {
+    setPresetBusy(key);
     const r = await submit('meal', '/api/meals/log', {
       ate_at: new Date().toISOString(), source: 'preset', preset_key: key,
     });
-    if (r) alert('已记录');
+    setPresetBusy(null);
+    if (r) toast.success('已记录', name);
   }
 
   async function uploadMealPhoto(b64: string) {
+    setMealExtractBusy(true);
     try {
       const r = await fetch('/api/meals/extract', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -100,20 +117,27 @@ export function HomeContent() {
         throw new Error(e.error ?? `HTTP ${r.status}`);
       }
       setMealPreview(await r.json() as MealPreview);
-    } catch (e: unknown) { setError((e as Error).message); }
+    } catch (e: unknown) {
+      toast.error('识别失败', (e as Error).message);
+    } finally {
+      setMealExtractBusy(false);
+    }
   }
 
   async function confirmMeal(p: MealPreview, satiety: number | undefined) {
+    setConfirmMealBusy(true);
     const r = await submit('meal', '/api/meals/log', {
       ate_at: new Date().toISOString(), source: 'photo_ai',
       dish_name: p.dish_name, kcal: p.kcal, protein_g: p.protein_g,
       carb_g: p.carb_g, fat_g: p.fat_g, fiber_g: p.fiber_g,
       ai_raw_json: { confidence: p.confidence }, satiety,
     });
-    if (r) { setMealPreview(null); alert('已入库'); }
+    setConfirmMealBusy(false);
+    if (r) { setMealPreview(null); toast.success('已入库', p.dish_name); }
   }
 
   async function uploadBodyPhoto(b64: string) {
+    setBodyExtractBusy(true);
     try {
       const r = await fetch('/api/body/extract', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -124,10 +148,15 @@ export function HomeContent() {
         throw new Error(e.error ?? `HTTP ${r.status}`);
       }
       setBodyPreview(await r.json() as BodyPreview);
-    } catch (e: unknown) { setError((e as Error).message); }
+    } catch (e: unknown) {
+      toast.error('识别失败', (e as Error).message);
+    } finally {
+      setBodyExtractBusy(false);
+    }
   }
 
   async function confirmBody(b: BodyPreview) {
+    setConfirmBodyBusy(true);
     const r = await submit('body_metric', '/api/body/log', {
       measured_at: b.measured_at ?? new Date().toISOString(),
       weight_kg: b.weight_kg, body_fat_pct: b.body_fat_pct,
@@ -135,10 +164,12 @@ export function HomeContent() {
       visceral_fat: b.visceral_fat, bmi: b.bmi,
       source: 'screenshot', ai_raw_json: {},
     });
-    if (r) { setBodyPreview(null); alert('已入库'); }
+    setConfirmBodyBusy(false);
+    if (r) { setBodyPreview(null); toast.success('已入库', `${b.weight_kg} kg`); }
   }
 
   async function triggerDailyAdvice() {
+    setAdviceBusy(true);
     try {
       const r = await fetch('/api/advice/daily', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
@@ -148,8 +179,12 @@ export function HomeContent() {
         throw new Error(e.error ?? `HTTP ${r.status}`);
       }
       const j = await r.json();
-      alert(j.content_md.slice(0, 300));
-    } catch (e: unknown) { setError((e as Error).message); }
+      toast.info('今日总评', j.content_md.slice(0, 300));
+    } catch (e: unknown) {
+      toast.error('生成失败', (e as Error).message);
+    } finally {
+      setAdviceBusy(false);
+    }
   }
 
   async function signOut() {
@@ -157,86 +192,179 @@ export function HomeContent() {
     location.href = '/login';
   }
 
+  const today = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' });
+
   return (
     <>
-      <main className="p-4 space-y-6 max-w-md mx-auto">
-        <header className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold">food-food</h1>
+      <main className="min-h-dvh px-5 pt-6 pb-24 max-w-md mx-auto anim-enter">
+        {/* Header */}
+        <header className="flex items-start justify-between mb-7">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-1">{today}</p>
+            <h1 className="display-roman text-[34px] leading-none">
+              food <span className="display">·</span> food
+            </h1>
+          </div>
           <button
             onClick={() => setDrawerOpen(true)}
             aria-label="open menu"
-            className="p-2 -mr-2 rounded hover:bg-gray-100 active:bg-gray-200"
+            className="p-2 -mr-2 text-text-2 hover:text-text active:scale-95 transition-all rounded-md"
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="3" y1="6" x2="21" y2="6"/>
-              <line x1="3" y1="12" x2="21" y2="12"/>
-              <line x1="3" y1="18" x2="21" y2="18"/>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="4" y1="7" x2="20" y2="7" />
+              <line x1="4" y1="13" x2="20" y2="13" />
+              <line x1="4" y1="19" x2="14" y2="19" />
             </svg>
           </button>
         </header>
 
-        {error && <p className="text-red-600 text-sm">{error}</p>}
-        {draftCount > 0 && (
-          <p className="text-amber-700 text-sm">⏳ {draftCount} 条草稿待同步（恢复网络后自动）</p>
-        )}
+        {/* Push state + draft chip */}
+        <div className="flex items-center justify-between mb-6 min-h-[1.5rem]">
+          <PushEnableButton />
+          {draftCount > 0 && (
+            <div className="flex items-center gap-2 text-[11px] text-warm font-mono uppercase tracking-wide">
+              <Spinner size={10} className="text-warm" />
+              {draftCount} 待同步
+            </div>
+          )}
+        </div>
 
-        <PushEnableButton />
-
-        <section>
-          <h2 className="font-semibold mb-2">选健身餐</h2>
+        {/* Section: Preset meals */}
+        <section className="mb-7">
+          <SectionLabel>选健身餐</SectionLabel>
           <div className="grid grid-cols-2 gap-2">
             {Object.entries(FITNESS_MEAL_PRESETS).map(([k, v]) => (
-              <button key={k} onClick={() => pickFitnessMeal(k)} className="border rounded p-2 text-sm">{v.name}<br />{v.kcal}kcal</button>
+              <button
+                key={k}
+                onClick={() => pickFitnessMeal(k, v.name)}
+                disabled={presetBusy !== null}
+                className={[
+                  'group relative bg-surface border border-hairline rounded-xl p-4 text-left transition-colors',
+                  'hover:border-hairline-strong hover:bg-surface-2',
+                  'active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed',
+                ].join(' ')}
+              >
+                <p className="text-[14px] text-text font-medium leading-tight">{v.name}</p>
+                <p className="text-[18px] font-mono text-accent tabular mt-2 leading-none">{v.kcal}<span className="text-[10px] text-text-3 ml-1">kcal</span></p>
+                {presetBusy === k && (
+                  <div className="absolute inset-0 bg-ink/60 backdrop-blur-sm rounded-xl flex items-center justify-center">
+                    <Spinner size={18} className="text-accent" />
+                  </div>
+                )}
+              </button>
             ))}
           </div>
         </section>
 
-        <section>
-          <h2 className="font-semibold mb-2">拍餐（其他餐）</h2>
-          {!mealPreview && <PhotoInput onPicked={(b64) => uploadMealPhoto(b64)} />}
-          {mealPreview && <MealPreviewCard initial={mealPreview} onConfirm={confirmMeal} onCancel={() => setMealPreview(null)} />}
+        {/* Section: Meal photo */}
+        <section className="mb-7">
+          <SectionLabel>拍餐 · 其他</SectionLabel>
+          {!mealPreview && !mealExtractBusy && (
+            <PhotoInput onPicked={uploadMealPhoto} label="拍照 / 选图识别" />
+          )}
+          {mealExtractBusy && (
+            <Card className="h-28 flex items-center justify-center gap-3">
+              <Spinner size={18} className="text-accent" />
+              <span className="text-[13px] text-text-2">AI 识别中…</span>
+            </Card>
+          )}
+          {mealPreview && (
+            <MealPreviewCard
+              initial={mealPreview}
+              onConfirm={confirmMeal}
+              onCancel={() => setMealPreview(null)}
+              busy={confirmMealBusy}
+            />
+          )}
         </section>
 
-        <section>
-          <h2 className="font-semibold mb-2">体重 / 体脂截图</h2>
-          {!bodyPreview && <PhotoInput onPicked={(b64) => uploadBodyPhoto(b64)} />}
-          {bodyPreview && <BodyPreviewCard initial={bodyPreview} onConfirm={confirmBody} onCancel={() => setBodyPreview(null)} />}
+        {/* Section: Body screenshot */}
+        <section className="mb-8">
+          <SectionLabel>体重 / 体脂截图</SectionLabel>
+          {!bodyPreview && !bodyExtractBusy && (
+            <PhotoInput onPicked={uploadBodyPhoto} label="上传体重秤截图" />
+          )}
+          {bodyExtractBusy && (
+            <Card className="h-28 flex items-center justify-center gap-3">
+              <Spinner size={18} className="text-accent" />
+              <span className="text-[13px] text-text-2">AI OCR 中…</span>
+            </Card>
+          )}
+          {bodyPreview && (
+            <BodyPreviewCard
+              initial={bodyPreview}
+              onConfirm={confirmBody}
+              onCancel={() => setBodyPreview(null)}
+              busy={confirmBodyBusy}
+            />
+          )}
         </section>
 
+        {/* Section: Daily advice CTA */}
         <section>
-          <button onClick={triggerDailyAdvice} className="bg-black text-white px-4 py-3 rounded w-full">今天怎么样？</button>
+          <Button
+            onClick={triggerDailyAdvice}
+            loading={adviceBusy}
+            size="lg"
+            className="w-full"
+          >
+            {adviceBusy ? 'AI 思考中…' : '今天怎么样？'}
+          </Button>
+          <p className="text-center text-[11px] text-text-4 mt-2 font-mono uppercase tracking-wide">
+            AI generates a daily summary
+          </p>
         </section>
       </main>
 
-      {/* Drawer overlay + side panel */}
-      {drawerOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-40"
+      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+        <DrawerItem
+          icon={<IconBell />}
+          label="通知中心"
+          hint="本周 / 本月建议、提醒"
+          href="/inbox"
           onClick={() => setDrawerOpen(false)}
-          aria-hidden="true"
         />
-      )}
-      <aside
-        className={`fixed top-0 right-0 h-full w-64 bg-white shadow-xl z-50 transform transition-transform duration-200 ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}
-        aria-hidden={!drawerOpen}
-      >
-        <div className="p-4 border-b flex justify-between items-center">
-          <h2 className="font-semibold">菜单</h2>
-          <button onClick={() => setDrawerOpen(false)} aria-label="close menu" className="p-1 rounded hover:bg-gray-100">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
+        <DrawerItem
+          icon={<IconSliders />}
+          label="修改目标"
+          hint="卡路里 · 蛋白 · 碳水 · 脂肪"
+          href="/settings"
+          onClick={() => setDrawerOpen(false)}
+        />
+        <DrawerItem
+          icon={<IconUser />}
+          label="个人数据"
+          hint="身高 / 体重 / 训练频率"
+          href="/setup"
+          onClick={() => setDrawerOpen(false)}
+        />
+        <DrawerItem
+          icon={<IconActivity />}
+          label="调试面板"
+          hint="AI 调用 · 错误日志 · cron"
+          href="/admin/debug"
+          onClick={() => setDrawerOpen(false)}
+        />
+        <DrawerItem
+          icon={<IconLogout />}
+          label="退出登录"
+          onClick={signOut}
+          danger
+        />
+        <div className="px-5 py-6 text-[11px] uppercase tracking-[0.16em] text-text-4 font-mono">
+          v0.1 · single-user beta
         </div>
-        <nav className="flex flex-col">
-          <Link href="/inbox" onClick={() => setDrawerOpen(false)} className="px-4 py-3 hover:bg-gray-50 border-b">📥 通知中心</Link>
-          <Link href="/settings" onClick={() => setDrawerOpen(false)} className="px-4 py-3 hover:bg-gray-50 border-b">⚙️ 修改目标</Link>
-          <Link href="/setup" onClick={() => setDrawerOpen(false)} className="px-4 py-3 hover:bg-gray-50 border-b">📝 重新设置个人数据</Link>
-          <Link href="/admin/debug" onClick={() => setDrawerOpen(false)} className="px-4 py-3 hover:bg-gray-50 border-b text-gray-600 text-sm">🔧 调试面板</Link>
-          <button onClick={signOut} className="text-left px-4 py-3 hover:bg-gray-50 border-b text-red-600">退出登录</button>
-        </nav>
-      </aside>
+      </Drawer>
     </>
   );
 }
+
+/* —— icons —— */
+const ic = (path: React.ReactNode) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{path}</svg>
+);
+const IconBell = () => ic(<><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 01-3.4 0" /></>);
+const IconSliders = () => ic(<><line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" /><line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" /><line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" /><line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" /></>);
+const IconUser = () => ic(<><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" /><circle cx="12" cy="7" r="4" /></>);
+const IconActivity = () => ic(<polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />);
+const IconLogout = () => ic(<><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></>);

@@ -1,5 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { Spinner } from './ui/spinner';
+import { useToast } from './ui/toast';
 
 function urlBase64ToUint8Array(base64: string): Uint8Array {
   const padding = '='.repeat((4 - base64.length % 4) % 4);
@@ -14,7 +16,7 @@ type State = 'unsupported' | 'denied' | 'idle' | 'subscribed' | 'busy' | 'error'
 
 export function PushEnableButton() {
   const [state, setState] = useState<State>('idle');
-  const [err, setErr] = useState<string | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -33,7 +35,7 @@ export function PushEnableButton() {
   }, []);
 
   async function subscribe() {
-    setState('busy'); setErr(null);
+    setState('busy');
     try {
       const reg = await navigator.serviceWorker.register('/sw.js');
       const perm = await Notification.requestPermission();
@@ -43,7 +45,6 @@ export function PushEnableButton() {
       if (!vapidPublicKey) throw new Error('VAPID public key not configured');
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        // Uint8Array<ArrayBufferLike> 不能直接赋给 BufferSource（TS 5+ 严格了 generic）
         applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
       });
       const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
@@ -58,22 +59,58 @@ export function PushEnableButton() {
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setState('subscribed');
+      toast.success('已订阅推送', '建议生成时会主动提醒');
     } catch (e: unknown) {
-      const error = e as { message?: string };
       setState('error');
-      setErr(error.message ?? 'unknown');
+      toast.error('订阅失败', (e as Error).message);
     }
   }
 
-  if (state === 'unsupported') return <p className="text-xs text-gray-500">本浏览器不支持 Web Push</p>;
-  if (state === 'denied') return <p className="text-xs text-amber-700">通知权限被拒，无法订阅推送</p>;
-  if (state === 'subscribed') return <p className="text-xs text-green-700">✓ 推送已开启</p>;
+  if (state === 'unsupported') {
+    return (
+      <p className="text-[11px] uppercase tracking-[0.14em] text-text-4 font-mono">
+        本浏览器不支持推送
+      </p>
+    );
+  }
+  if (state === 'denied') {
+    return (
+      <div className="flex items-center gap-2 text-[12px] text-warm">
+        <span className="w-1.5 h-1.5 rounded-full bg-warm anim-pulse-soft" />
+        通知权限被拒，无法订阅推送
+      </div>
+    );
+  }
+  if (state === 'subscribed') {
+    return (
+      <div className="flex items-center gap-2 text-[12px] text-success">
+        <span className="w-1.5 h-1.5 rounded-full bg-success" />
+        推送已开启
+      </div>
+    );
+  }
   return (
-    <div className="text-sm">
-      <button onClick={subscribe} disabled={state === 'busy'} className="border rounded px-3 py-1 disabled:opacity-50">
-        {state === 'busy' ? '订阅中…' : '开启推送通知'}
-      </button>
-      {err && <p className="text-red-500 text-xs mt-1">{err}</p>}
-    </div>
+    <button
+      onClick={subscribe}
+      disabled={state === 'busy'}
+      className={[
+        'inline-flex items-center gap-2 text-[12px] uppercase tracking-[0.14em] font-mono',
+        'text-text-2 hover:text-text transition-colors',
+      ].join(' ')}
+    >
+      {state === 'busy' ? (
+        <>
+          <Spinner size={12} className="text-accent" />
+          订阅中…
+        </>
+      ) : (
+        <>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
+          </svg>
+          开启推送
+        </>
+      )}
+    </button>
   );
 }

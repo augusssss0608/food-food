@@ -1,6 +1,11 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
+import { useToast } from '@/components/ui/toast';
 
 type ProfileRow = {
   user_id: string;
@@ -13,15 +18,22 @@ type ProfileRow = {
   fiber_g: number | null;
 };
 
-const NUM_KEYS = ['kcal_workout_day','kcal_rest_day','protein_g','carb_workout_day','carb_rest_day','fat_g','fiber_g'] as const;
-type NumKey = typeof NUM_KEYS[number];
+const FIELDS: { key: keyof Omit<ProfileRow, 'user_id'>; label: string; suffix: string; group: 'energy' | 'macro' }[] = [
+  { key: 'kcal_workout_day', label: '训练日卡路里', suffix: 'kcal', group: 'energy' },
+  { key: 'kcal_rest_day', label: '休息日卡路里', suffix: 'kcal', group: 'energy' },
+  { key: 'protein_g', label: '蛋白质', suffix: 'g', group: 'macro' },
+  { key: 'carb_workout_day', label: '碳水（训练日）', suffix: 'g', group: 'macro' },
+  { key: 'carb_rest_day', label: '碳水（休息日）', suffix: 'g', group: 'macro' },
+  { key: 'fat_g', label: '脂肪', suffix: 'g', group: 'macro' },
+  { key: 'fiber_g', label: '膳食纤维', suffix: 'g', group: 'macro' },
+];
 
 export default function SettingsPage() {
   const [profile, setProfile] = useState<ProfileRow | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // useMemo 保证 client 引用稳定（避免每次 render 新对象 → useEffect deps 变 → 无限请求）
+  const [busy, setBusy] = useState(false);
   const supa = useMemo(() => createSupabaseBrowserClient(), []);
+  const toast = useToast();
 
   useEffect(() => {
     supa.from('profiles').select('*').single().then(({ data, error }) => {
@@ -32,28 +44,108 @@ export default function SettingsPage() {
 
   async function save() {
     if (!profile) return;
-    setMsg(null);
+    setBusy(true);
     const r = await supa.from('profiles').update({
       ...profile,
       targets_source: 'user_override',
       targets_updated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     } as never).eq('user_id', profile.user_id);
-    setMsg(r.error ? `错误: ${r.error.message}` : '已保存');
+    setBusy(false);
+    if (r.error) toast.error('保存失败', r.error.message);
+    else toast.success('已保存', '目标已更新');
   }
 
-  if (loadError) return <main className="p-4"><p className="text-red-600">读取 profile 失败：{loadError}（可能未登录）</p></main>;
-  if (!profile) return <p>loading...</p>;
+  if (loadError) {
+    return (
+      <main className="min-h-dvh px-6 py-16 max-w-md mx-auto">
+        <Card className="p-5">
+          <p className="text-danger text-[14px]">读取 profile 失败</p>
+          <p className="text-text-3 text-[12px] mt-1">{loadError}</p>
+        </Card>
+      </main>
+    );
+  }
+  if (!profile) {
+    return (
+      <main className="min-h-dvh px-5 py-8 max-w-md mx-auto">
+        <Skeleton />
+      </main>
+    );
+  }
+
+  const energy = FIELDS.filter((f) => f.group === 'energy');
+  const macro = FIELDS.filter((f) => f.group === 'macro');
+
   return (
-    <main className="p-4 space-y-3 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold">设置目标</h1>
-      {NUM_KEYS.map((k) => (
-        <label key={k} className="block text-sm">
-          {k}: <input type="number" value={profile[k] ?? 0} onChange={(e) => setProfile({ ...profile, [k as NumKey]: Number(e.target.value) })} className="ml-2 border px-2 py-1 w-24" />
-        </label>
-      ))}
-      <button onClick={save} className="bg-black text-white px-4 py-2 rounded">保存</button>
-      {msg && <p>{msg}</p>}
+    <main className="min-h-dvh px-5 py-8 max-w-md mx-auto anim-enter">
+      <header className="flex items-baseline justify-between mb-8">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">targets</p>
+          <h1 className="display-roman text-[32px] leading-none">修改目标</h1>
+        </div>
+        <Link href="/" className="text-[13px] text-text-3 hover:text-text transition-colors">← 主页</Link>
+      </header>
+
+      <Section title="能量">
+        {energy.map((f) => (
+          <Input
+            key={f.key}
+            id={f.key}
+            label={f.label}
+            type="number"
+            value={profile[f.key] ?? 0}
+            onChange={(e) =>
+              setProfile({ ...profile, [f.key]: Number(e.target.value) })
+            }
+            suffix={f.suffix}
+          />
+        ))}
+      </Section>
+
+      <Section title="宏量营养">
+        {macro.map((f) => (
+          <Input
+            key={f.key}
+            id={f.key}
+            label={f.label}
+            type="number"
+            value={profile[f.key] ?? 0}
+            onChange={(e) =>
+              setProfile({ ...profile, [f.key]: Number(e.target.value) })
+            }
+            suffix={f.suffix}
+          />
+        ))}
+      </Section>
+
+      <div className="mt-8">
+        <Button size="lg" onClick={save} loading={busy} className="w-full">
+          {busy ? '保存中…' : '保存目标'}
+        </Button>
+      </div>
     </main>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="mb-6">
+      <p className="text-[11px] uppercase tracking-[0.2em] text-text-3 font-mono mb-3">{title}</p>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function Skeleton() {
+  return (
+    <>
+      <div className="h-8 w-32 skeleton mb-8" />
+      <div className="space-y-3">
+        {[...Array(7)].map((_, i) => (
+          <div key={i} className="h-12 skeleton" />
+        ))}
+      </div>
+    </>
   );
 }
