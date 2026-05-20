@@ -32,12 +32,19 @@ export async function middleware(req: NextRequest) {
     {
       cookies: {
         getAll: () => req.cookies.getAll(),
-        setAll: (cookies) => {
+        // Supabase 在刷新 token 时会传防 CDN 缓存的 headers（Cache-Control/Expires/Pragma），
+        // 必须写到 response.headers，否则 reverse proxy 可能把一个用户的 session token 缓存给另一个用户
+        setAll: (cookies, headers) => {
           cookies.forEach(({ name, value }) => req.cookies.set(name, value));
           response = NextResponse.next({ request: req });
           cookies.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options),
           );
+          if (headers) {
+            for (const [k, v] of Object.entries(headers)) {
+              response.headers.set(k, v);
+            }
+          }
         },
       },
     },

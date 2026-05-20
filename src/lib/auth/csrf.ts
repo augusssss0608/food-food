@@ -12,7 +12,13 @@ export function assertSameOrigin(req: Request): void {
   const origin = req.headers.get('origin');
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
   if (!siteUrl) throw new CsrfError('NEXT_PUBLIC_SITE_URL not configured');
-  const allowed = new Set([siteUrl.toLowerCase()]);
+  let normalizedSite: string;
+  try {
+    normalizedSite = new URL(siteUrl).origin.toLowerCase();
+  } catch {
+    throw new CsrfError('NEXT_PUBLIC_SITE_URL is malformed');
+  }
+  const allowed = new Set([normalizedSite]);
   if (process.env.NODE_ENV !== 'production') allowed.add('http://localhost:3000');
   if (origin) {
     let normalized: string;
