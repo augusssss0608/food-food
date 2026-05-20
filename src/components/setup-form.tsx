@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
 import { NumberInput, isEmptyNum } from '@/components/ui/number-input';
@@ -32,7 +33,20 @@ type State = {
   preferred_timezone: string;
 };
 
-export function SetupForm({ initial }: { initial?: SetupInitial } = {}) {
+// onboarding：/ 在沒 profile 時 inline render，首次填資料的流程，無返回；
+// edit：drawer「個人資料」進 /setup 編輯既有 profile，有返回主頁按鈕。
+type Mode = 'onboarding' | 'edit';
+
+export function SetupForm({
+  initial,
+  mode,
+}: {
+  initial?: SetupInitial;
+  mode?: Mode;
+} = {}) {
+  // 沒明確指定就按 initial 有沒有來判斷：有 initial（drawer 進來的編輯路徑）= edit
+  const m: Mode = mode ?? (initial ? 'edit' : 'onboarding');
+
   const [profile, setProfile] = useState<State>({
     height_cm: initial?.height_cm ?? 175,
     current_weight_kg: initial?.current_weight_kg ?? 70,
@@ -62,24 +76,47 @@ export function SetupForm({ initial }: { initial?: SetupInitial } = {}) {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? 'failed');
-      toast.success('目標已生成', '即將進入主頁…');
+      toast.success(m === 'onboarding' ? '目標已生成' : '已儲存', m === 'onboarding' ? '即將進入主頁…' : '個人資料已更新');
       setTimeout(() => { location.href = '/'; }, 900);
     } catch (e: unknown) {
-      toast.error('生成失敗', (e as Error).message);
+      toast.error(m === 'onboarding' ? '生成失敗' : '儲存失敗', (e as Error).message);
       setBusy(false);
     }
   }
 
   return (
     <PageShell px="px-6">
+        {m === 'edit' && (
+          <Link
+            href="/"
+            prefetch
+            className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
+          >
+            ← 主頁
+          </Link>
+        )}
         <header className="mb-8">
-          <p className="text-[11px] uppercase tracking-[0.28em] text-accent font-mono mb-2">step 01 / 01</p>
-          <h1 className="display-roman text-[36px] leading-[0.95]">
-            告訴我你的<span className="display">起點</span>
-          </h1>
-          <p className="text-text-2 text-[14px] mt-3 leading-relaxed">
-            AI 會基於這些資料為你算出每日卡路里、蛋白、碳水、脂肪目標。
-          </p>
+          {m === 'onboarding' ? (
+            <>
+              <p className="text-[11px] uppercase tracking-[0.28em] text-accent font-mono mb-2">step 01 / 01</p>
+              <h1 className="display-roman text-[36px] leading-[0.95]">
+                告訴我你的<span className="display">起點</span>
+              </h1>
+              <p className="text-text-2 text-[14px] mt-3 leading-relaxed">
+                AI 會基於這些資料為你算出每日卡路里、蛋白、碳水、脂肪目標。
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] uppercase tracking-[0.28em] text-text-3 font-mono mb-2">profile</p>
+              <h1 className="display-roman text-[36px] leading-[0.95]">
+                個人<span className="display">資料</span>
+              </h1>
+              <p className="text-text-2 text-[14px] mt-3 leading-relaxed">
+                修改身高 / 體重 / 訓練頻率，會基於新值重新計算目標。
+              </p>
+            </>
+          )}
         </header>
 
         <div className="space-y-4">
@@ -116,10 +153,12 @@ export function SetupForm({ initial }: { initial?: SetupInitial } = {}) {
 
         <div className="mt-10">
           <Button onClick={submit} size="lg" loading={busy} className="w-full">
-            {busy ? '正在生成你的目標…' : '生成初始目標'}
+            {busy
+              ? (m === 'onboarding' ? '正在生成你的目標…' : '儲存中…')
+              : (m === 'onboarding' ? '生成初始目標' : '儲存資料')}
           </Button>
           <p className="text-[12px] text-text-3 mt-3 text-center">
-            資料可在「修改目標」裡隨時調整
+            {m === 'onboarding' ? '資料可在「個人資料」裡隨時調整' : '想單獨改卡路里 / 宏量目標，到「修改目標」'}
           </p>
         </div>
     </PageShell>

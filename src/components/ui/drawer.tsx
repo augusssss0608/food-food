@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, type ReactNode } from 'react';
+import Link from 'next/link';
 
 export function Drawer({
   open,
@@ -110,7 +111,8 @@ export function DrawerItem({
     </>
   );
   if (href) {
-    return <a href={href} className={className} onClick={onClick}>{inner}</a>;
+    // 用 next/link 而不是 <a>，Next.js 客户端导航即时切换，不再 MPA 全页重载
+    return <Link href={href} prefetch className={className} onClick={onClick}>{inner}</Link>;
   }
   return <button onClick={onClick} className={className}>{inner}</button>;
 }

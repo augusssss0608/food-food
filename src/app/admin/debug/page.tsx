@@ -38,12 +38,16 @@ export default async function AdminDebugPage() {
 
   return (
     <PageShell wide topAlign>
-      <header className="flex items-baseline justify-between mb-10">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-warm font-mono mb-1">restricted · admin</p>
-          <h1 className="display-roman text-[32px] leading-none">debug</h1>
-        </div>
-        <Link href="/" className="text-[13px] text-text-3 hover:text-text transition-colors">← 主頁</Link>
+      <header className="mb-10">
+        <Link
+          href="/"
+          prefetch
+          className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
+        >
+          ← 主頁
+        </Link>
+        <p className="text-[11px] uppercase tracking-[0.24em] text-warm font-mono mb-1">restricted · admin</p>
+        <h1 className="display-roman text-[32px] leading-none">debug</h1>
       </header>
 
       {/* Summary stat cards */}

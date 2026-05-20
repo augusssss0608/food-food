@@ -100,12 +100,16 @@ export default function SettingsPage() {
 
   return (
     <PageShell>
-        <header className="flex items-baseline justify-between mb-8">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">targets</p>
-            <h1 className="display-roman text-[32px] leading-none">修改目標</h1>
-          </div>
-          <Link href="/" className="text-[13px] text-text-3 hover:text-text transition-colors">← 主頁</Link>
+        <header className="mb-8">
+          <Link
+            href="/"
+            prefetch
+            className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
+          >
+            ← 主頁
+          </Link>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">targets</p>
+          <h1 className="display-roman text-[32px] leading-none">修改目標</h1>
         </header>
 
         <Section title="能量">

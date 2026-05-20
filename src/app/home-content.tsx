@@ -197,18 +197,12 @@ export function HomeContent() {
   return (
     <>
       <PageShell>
-          {/* Header */}
-          <header className="flex items-start justify-between mb-7">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-1">{today}</p>
-              <h1 className="display-roman text-[34px] leading-none">
-                food <span className="display">·</span> food
-              </h1>
-            </div>
+          {/* Header — 漢堡按鈕在左（iOS / 一般 app 習慣），標題塊在下方 */}
+          <header className="mb-7">
             <button
               onClick={() => setDrawerOpen(true)}
               aria-label="open menu"
-              className="p-2 -mr-2 text-text-2 hover:text-text active:scale-95 transition-all rounded-md"
+              className="p-2 -ml-2 mb-4 text-text-2 hover:text-text active:scale-95 transition-all rounded-md"
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <line x1="4" y1="7" x2="20" y2="7" />
@@ -216,6 +210,10 @@ export function HomeContent() {
                 <line x1="4" y1="19" x2="14" y2="19" />
               </svg>
             </button>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-1">{today}</p>
+            <h1 className="display-roman text-[34px] leading-none">
+              food <span className="display">·</span> food
+            </h1>
           </header>
 
           {/* Push state + draft chip */}

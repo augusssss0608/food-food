@@ -51,9 +51,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={api}>
       {children}
+      {/*
+        toast 定位全 inline style 寫死：Tailwind v4 對 `top-3 left-1/2 -translate-x-1/2`
+        在這個項目下沒編譯出來，導致 div 落到 body 末尾 normal flow（畫面下方）。
+        加上 safe-area-inset-top 讓 toast 在 iOS PWA 顯示在狀態欄下方。
+      */}
       <div
         data-toast-root
-        className="fixed top-3 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 pointer-events-none w-[min(440px,calc(100%-24px))]"
+        className="flex flex-col gap-2 pointer-events-none"
+        style={{
+          position: 'fixed',
+          top: 'calc(env(safe-area-inset-top) + 0.75rem)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 100,
+          width: 'min(440px, calc(100% - 24px))',
+        }}
       >
         {items.map((t) => (
           <ToastBubble key={t.id} item={t} onClose={() => remove(t.id)} />

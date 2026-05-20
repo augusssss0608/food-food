@@ -26,12 +26,16 @@ export default async function InboxPage() {
   // items 多 → 列表從頂向下滾，topAlign；空態 → 自動垂直置中
   return (
     <PageShell topAlign={items.length > 0}>
-        <header className="flex items-baseline justify-between mb-8">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">inbox</p>
-            <h1 className="display-roman text-[32px] leading-none">通知</h1>
-          </div>
-          <Link href="/" className="text-[13px] text-text-3 hover:text-text transition-colors">← 主頁</Link>
+        <header className="mb-8">
+          <Link
+            href="/"
+            prefetch
+            className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
+          >
+            ← 主頁
+          </Link>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">inbox</p>
+          <h1 className="display-roman text-[32px] leading-none">通知</h1>
         </header>
 
         {items.length === 0 ? (
