@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { assertSameOrigin, CsrfError } from '@/lib/auth/csrf';
 
 function makeReq(method: string, headers: Record<string, string>): Request {
@@ -7,7 +7,7 @@ function makeReq(method: string, headers: Record<string, string>): Request {
 
 beforeAll(() => {
   process.env.NEXT_PUBLIC_SITE_URL = 'http://localhost:3000';
-  process.env.NODE_ENV = 'test';
+  vi.stubEnv('NODE_ENV', 'test');
 });
 
 describe('assertSameOrigin', () => {

@@ -15,8 +15,9 @@ export async function requireAllowedUser(opts: { fresh?: boolean } = {}) {
     if (user.id !== process.env.ALLOWED_USER_ID || user.is_anonymous) throw new ForbiddenError();
     return { supabase, userId: user.id };
   }
-  const { data: { claims }, error } = await supabase.auth.getClaims();
-  if (error || !claims?.sub) throw new AuthError();
+  const { data, error } = await supabase.auth.getClaims();
+  if (error || !data?.claims?.sub) throw new AuthError();
+  const { claims } = data;
   if (claims.sub !== process.env.ALLOWED_USER_ID || claims.is_anonymous === true) throw new ForbiddenError();
   return { supabase, userId: claims.sub };
 }
