@@ -43,8 +43,8 @@ html {
   color-scheme: dark;
   /* 防止任何 fixed/transform 元素短暂溢出导致整页可横向滚动（drawer 滑入时） */
   overflow-x: hidden;
-  /* 禁用 iOS 邊緣返回 / 前進手勢 + 任何水平 overscroll chaining */
-  overscroll-behavior-x: none;
+  /* x: 禁 iOS 邊緣返回手勢；y: 禁短頁面的 rubber-band bounce（內容沒超過一頁就不該被滑動） */
+  overscroll-behavior: none;
 }
 
 body {
@@ -57,11 +57,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
   min-height: 100dvh;
   overflow-x: hidden;
-  overscroll-behavior-x: none;
+  overscroll-behavior: none;
 }
 
 main {
-  overscroll-behavior-x: none;
+  overscroll-behavior: none;
 }
 
 /* Decorative grain texture overlay — adds atmospheric depth.

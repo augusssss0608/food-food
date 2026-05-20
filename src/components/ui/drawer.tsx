@@ -71,19 +71,11 @@ export function Drawer({
           paddingBottom: 'env(safe-area-inset-bottom)',
         }}
       >
-        <div className="flex items-center justify-between px-5 h-14 border-b border-hairline flex-shrink-0">
+        {/* drawer header：只剩標籤，點 overlay / 點 item 跳轉都會自動關閉，不需要 ✕ 按鈕 */}
+        <div className="flex items-center px-5 h-14 border-b border-hairline flex-shrink-0">
           <span className="text-[11px] uppercase tracking-[0.2em] text-text-3 font-medium">
             {title ?? 'Menu'}
           </span>
-          <button
-            onClick={onClose}
-            aria-label="close menu"
-            className="p-1.5 -mr-1.5 text-text-3 hover:text-text rounded-md transition-colors"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
         </div>
         <div className="flex-1 overflow-y-auto">{children}</div>
       </aside>
