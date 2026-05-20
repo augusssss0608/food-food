@@ -50,3 +50,15 @@ supabase/.branches/
 
 # OS
 Thumbs.db
+
+# vitest / coverage
+/coverage
+
+# playwright
+/playwright-report
+/test-results
+/playwright/.cache
+
+# supabase local
+/supabase/.branches
+/supabase/.temp
