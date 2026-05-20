@@ -8,7 +8,9 @@ export type AppErrorKind =
   | 'auth'
   | 'provider_fallback'
   | 'oauth_token_expired'
-  | 'fallback_cap_cron_skip';
+  | 'fallback_cap_cron_skip'
+  | 'meals_patch'
+  | 'meals_delete';
 
 /**
  * 写 app_errors。**永不抛**——内部任何异常（含 DB 网络错误）都吞掉并 console.error，

@@ -8,6 +8,7 @@ import { BodyPreviewCard, type BodyPreview } from '@/components/body-preview-car
 import { PushEnableButton } from '@/components/push-enable-button';
 import { TodaySummary } from '@/components/today-summary';
 import { TodayMeals, type TodayMeal } from '@/components/today-meals';
+import { MealDetailSheet } from '@/components/meal-detail-sheet';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { saveDraft, syncDrafts } from '@/lib/drafts/sync';
 import { getDraftsDb, type LocalDraft } from '@/lib/drafts/db';
@@ -60,6 +61,7 @@ export function HomeContent({
   const [userId, setUserId] = useState<string | null>(null);
   const [draftCount, setDraftCount] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedMeal, setSelectedMeal] = useState<TodayMeal | null>(null);
 
   const [presetBusy, setPresetBusy] = useState<string | null>(null);
   const [mealExtractBusy, setMealExtractBusy] = useState(false);
@@ -283,8 +285,8 @@ export function HomeContent({
         {/* 今日摘要 — C 位 */}
         <TodaySummary consumed={consumed} targets={targets} workoutHint={workoutHint} />
 
-        {/* 今日已記錄的 meals */}
-        <TodayMeals meals={meals} timezone={timezone} />
+        {/* 今日已記錄的 meals — 點某條彈 MealDetailSheet 改 / 刪 */}
+        <TodayMeals meals={meals} timezone={timezone} onSelect={setSelectedMeal} />
 
         {/* 錄入入口 — preset / 拍餐 / 體重截圖 折在下方 */}
         <section className="mb-7">
@@ -380,6 +382,20 @@ export function HomeContent({
           onClick={() => setDrawerOpen(false)}
         />
         <DrawerItem
+          icon={<IconHistory />}
+          label="飲食歷史"
+          hint="近 60 天每日紀錄"
+          href="/history/meals"
+          onClick={() => setDrawerOpen(false)}
+        />
+        <DrawerItem
+          icon={<IconChart />}
+          label="身體數據"
+          hint="體重 / 體脂 / 肌肉 趨勢圖"
+          href="/history/body"
+          onClick={() => setDrawerOpen(false)}
+        />
+        <DrawerItem
           icon={<IconSliders />}
           label="修改目標"
           hint="卡路里 · 蛋白 · 碳水 · 脂肪"
@@ -410,6 +426,9 @@ export function HomeContent({
           v0.1 · single-user beta
         </div>
       </Drawer>
+
+      {/* 今日 meal 詳情 / 編輯 / 刪除 */}
+      <MealDetailSheet meal={selectedMeal} timezone={timezone} onClose={() => setSelectedMeal(null)} />
     </>
   );
 }
@@ -423,3 +442,5 @@ const IconSliders = () => ic(<><line x1="4" y1="21" x2="4" y2="14" /><line x1="4
 const IconUser = () => ic(<><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" /><circle cx="12" cy="7" r="4" /></>);
 const IconActivity = () => ic(<polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />);
 const IconLogout = () => ic(<><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></>);
+const IconHistory = () => ic(<><path d="M3 12a9 9 0 1 0 3-6.7" /><polyline points="3 4 3 10 9 10" /><polyline points="12 7 12 12 15 14" /></>);
+const IconChart = () => ic(<><polyline points="3 17 9 11 13 15 21 7" /><polyline points="14 7 21 7 21 14" /></>);

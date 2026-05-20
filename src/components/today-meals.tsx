@@ -21,13 +21,20 @@ const SOURCE_LABEL: Record<TodayMeal['source'], string> = {
 };
 
 /**
- * Phase 1：列出今日已記錄的 meals（read-only）。
+ * 列出今日已記錄的 meals。
  * 時間顯示用 profile timezone（從父層傳入），跟 server 算今日範圍同口徑。
  * kcal == null 時顯示 "—"，避免「未估算」被誤認為「真的 0」。
- *
- * Phase 2 會加 tap → 詳情 sheet（含編輯 / 刪除）。
+ * 點某條 → 觸發 onSelect，父層彈 MealDetailSheet 改 / 刪。
  */
-export function TodayMeals({ meals, timezone }: { meals: TodayMeal[]; timezone: string }) {
+export function TodayMeals({
+  meals,
+  timezone,
+  onSelect,
+}: {
+  meals: TodayMeal[];
+  timezone: string;
+  onSelect?: (meal: TodayMeal) => void;
+}) {
   if (meals.length === 0) {
     return (
       <section className="mb-7">
@@ -45,29 +52,35 @@ export function TodayMeals({ meals, timezone }: { meals: TodayMeal[]; timezone: 
       <SectionLabel>今日已記錄 · {meals.length}</SectionLabel>
       <ul className="space-y-2">
         {meals.map((m) => (
-          <li
-            key={m.id}
-            className="bg-surface border border-hairline rounded-xl px-4 py-3 flex items-center gap-3"
-          >
-            <div className="flex-1 min-w-0">
-              <p className="text-[14px] text-text font-medium truncate">
-                {m.dish_name ?? '未命名'}
+          <li key={m.id}>
+            <button
+              type="button"
+              onClick={() => onSelect?.(m)}
+              className="w-full bg-surface border border-hairline rounded-xl px-4 py-3 flex items-center gap-3 text-left hover:border-hairline-strong active:bg-surface-2 transition-colors"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-[14px] text-text font-medium truncate">
+                  {m.dish_name ?? '未命名'}
+                </p>
+                <p className="text-[11px] text-text-3 font-mono tabular mt-0.5">
+                  {new Date(m.ate_at).toLocaleTimeString('zh-TW', {
+                    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone,
+                  })}
+                  {' · '}
+                  {SOURCE_LABEL[m.source]}
+                  {m.satiety != null && (
+                    <span className="ml-1">· 飽 {m.satiety}</span>
+                  )}
+                </p>
+              </div>
+              <p className="text-[16px] font-mono text-accent tabular flex-shrink-0">
+                {m.kcal == null ? '—' : Math.round(m.kcal)}
+                <span className="text-[10px] text-text-3 ml-0.5">kcal</span>
               </p>
-              <p className="text-[11px] text-text-3 font-mono tabular mt-0.5">
-                {new Date(m.ate_at).toLocaleTimeString('zh-TW', {
-                  hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone,
-                })}
-                {' · '}
-                {SOURCE_LABEL[m.source]}
-                {m.satiety != null && (
-                  <span className="ml-1">· 飽 {m.satiety}</span>
-                )}
-              </p>
-            </div>
-            <p className="text-[16px] font-mono text-accent tabular flex-shrink-0">
-              {m.kcal == null ? '—' : Math.round(m.kcal)}
-              <span className="text-[10px] text-text-3 ml-0.5">kcal</span>
-            </p>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-4 flex-shrink-0">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
           </li>
         ))}
       </ul>
