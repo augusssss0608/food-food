@@ -26,23 +26,16 @@ describe('migration smoke', () => {
     expect(data).toBe('00000000-0000-0000-0000-000000000001');
   });
 
-  it('app_config caps seeded (verified by RPC behavior)', async () => {
-    // app_private schema 不通过 PostgREST 暴露（spec §3.5），不能 from('app_config').select() —
-    // 改用 RPC 间接验证：try_reserve_ai_budget 和 try_reserve_fallback_monthly_cap 在 cap 未 seed 时会 raise，
-    // 此处用 owner_uid + 0 cents 调用，能返回 ok=true 即证明 3 个 cap 都已配置。
-    const OWNER = '00000000-0000-0000-0000-000000000001';
-
-    const r1 = await supa.schema('app_private').rpc('try_reserve_ai_budget', {
-      p_user_id: OWNER, p_estimated_cost_cents: 0,
-    });
-    expect(r1.error, 'daily caps must be seeded (call_cap + cost_cap_cents)').toBeNull();
-    expect(r1.data?.[0]?.ok ?? r1.data?.ok).toBe(true);
-
-    const r2 = await supa.schema('app_private').rpc('try_reserve_fallback_monthly_cap', {
-      p_user_id: OWNER, p_estimated_cost_cents: 0,
-    });
-    expect(r2.error, 'monthly fallback cap must be seeded').toBeNull();
-    expect(r2.data?.[0]?.ok ?? r2.data?.ok).toBe(true);
+  it('app_config has 3 caps seeded', async () => {
+    const { data, error } = await supa.schema('app_private')
+      .from('app_config').select('key');
+    expect(error).toBeNull();
+    const keys = (data ?? []).map((r: { key: string }) => r.key).sort();
+    expect(keys).toEqual([
+      'ai_budget_daily_call_cap',
+      'ai_budget_daily_cost_cap_cents',
+      'ai_budget_monthly_fallback_cap_cents',
+    ]);
   });
 
   it('mark_advice_stale_for_meal trigger exists', async () => {

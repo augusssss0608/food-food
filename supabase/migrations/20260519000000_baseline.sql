@@ -469,13 +469,31 @@ create trigger meals_mark_advice_stale
 create or replace function public.mark_advice_stale_for_workout()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
-  r record := coalesce(new, old);
-  ts timestamptz;
+  uid uuid;
+  tz text;
 begin
-  ts := (r.date::timestamp at time zone (
-    select coalesce(preferred_timezone, 'Asia/Tokyo') from public.profiles where user_id = r.user_id
-  ));
-  perform mark_advice_period_stale(r.user_id, ts);
+  -- coalesce 让 profile 行缺失时仍按 Asia/Tokyo 走（spec 默认时区）
+  if tg_op = 'INSERT' then
+    uid := new.user_id;
+    select coalesce(preferred_timezone, 'Asia/Tokyo') into tz from public.profiles where user_id = uid;
+    tz := coalesce(tz, 'Asia/Tokyo');
+    perform mark_advice_period_stale(uid, (new.date::timestamp at time zone tz));
+  elsif tg_op = 'DELETE' then
+    uid := old.user_id;
+    select coalesce(preferred_timezone, 'Asia/Tokyo') into tz from public.profiles where user_id = uid;
+    tz := coalesce(tz, 'Asia/Tokyo');
+    perform mark_advice_period_stale(uid, (old.date::timestamp at time zone tz));
+  elsif tg_op = 'UPDATE' then
+    -- UPDATE 时分别标 old 和 new 的 period（date 跨周/月时旧 period 也要 stale）
+    select coalesce(preferred_timezone, 'Asia/Tokyo') into tz from public.profiles where user_id = old.user_id;
+    tz := coalesce(tz, 'Asia/Tokyo');
+    perform mark_advice_period_stale(old.user_id, (old.date::timestamp at time zone tz));
+    if new.date is distinct from old.date or new.user_id is distinct from old.user_id then
+      select coalesce(preferred_timezone, 'Asia/Tokyo') into tz from public.profiles where user_id = new.user_id;
+      tz := coalesce(tz, 'Asia/Tokyo');
+      perform mark_advice_period_stale(new.user_id, (new.date::timestamp at time zone tz));
+    end if;
+  end if;
   return coalesce(new, old);
 end; $$;
 
@@ -485,10 +503,17 @@ create trigger workout_days_mark_advice_stale
 
 create or replace function public.mark_advice_stale_for_body()
 returns trigger language plpgsql security definer set search_path = public as $$
-declare
-  r record := coalesce(new, old);
 begin
-  perform mark_advice_period_stale(r.user_id, r.measured_at);
+  if tg_op = 'INSERT' then
+    perform mark_advice_period_stale(new.user_id, new.measured_at);
+  elsif tg_op = 'DELETE' then
+    perform mark_advice_period_stale(old.user_id, old.measured_at);
+  elsif tg_op = 'UPDATE' then
+    perform mark_advice_period_stale(old.user_id, old.measured_at);
+    if new.measured_at is distinct from old.measured_at or new.user_id is distinct from old.user_id then
+      perform mark_advice_period_stale(new.user_id, new.measured_at);
+    end if;
+  end if;
   return coalesce(new, old);
 end; $$;
 
@@ -506,7 +531,8 @@ begin
     new.carb_workout_day is distinct from old.carb_workout_day or
     new.carb_rest_day is distinct from old.carb_rest_day or
     new.fat_g is distinct from old.fat_g or
-    new.fiber_g is distinct from old.fiber_g
+    new.fiber_g is distinct from old.fiber_g or
+    new.targets_source is distinct from old.targets_source
   ) then
     perform mark_advice_period_stale(new.user_id, now());
   end if;
