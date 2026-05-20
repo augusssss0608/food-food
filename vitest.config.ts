@@ -11,6 +11,11 @@ export default defineConfig({
     fileParallelism: false,
   },
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      // server-only 在 vitest 环境（不走 webpack）会 throw 模块级错误，
+      // 用 empty module（server-only 自带的 react-server 条件入口）替换让测试可 import
+      'server-only': path.resolve(__dirname, './node_modules/server-only/empty.js'),
+    },
   },
 });
