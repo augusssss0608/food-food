@@ -37,7 +37,6 @@ export function HomeContent() {
   const [draftCount, setDraftCount] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // 状态：busy 区分各 button，给精细 loading 态
   const [presetBusy, setPresetBusy] = useState<string | null>(null);
   const [mealExtractBusy, setMealExtractBusy] = useState(false);
   const [bodyExtractBusy, setBodyExtractBusy] = useState(false);
@@ -88,10 +87,10 @@ export function HomeContent() {
       if (isOfflineError(e) && userId) {
         await saveDraft(userId, type, { endpoint, body, idempotencyKey } satisfies DraftPayload);
         await refreshDraftCount();
-        toast.info('离线已暂存', '恢复网络后自动同步');
+        toast.info('離線已暫存', '恢復網路後自動同步');
         return null;
       }
-      toast.error('提交失败', err.message ?? 'unknown');
+      toast.error('提交失敗', err.message ?? 'unknown');
       return null;
     }
   }
@@ -102,7 +101,7 @@ export function HomeContent() {
       ate_at: new Date().toISOString(), source: 'preset', preset_key: key,
     });
     setPresetBusy(null);
-    if (r) toast.success('已记录', name);
+    if (r) toast.success('已記錄', name);
   }
 
   async function uploadMealPhoto(b64: string) {
@@ -118,7 +117,7 @@ export function HomeContent() {
       }
       setMealPreview(await r.json() as MealPreview);
     } catch (e: unknown) {
-      toast.error('识别失败', (e as Error).message);
+      toast.error('識別失敗', (e as Error).message);
     } finally {
       setMealExtractBusy(false);
     }
@@ -133,7 +132,7 @@ export function HomeContent() {
       ai_raw_json: { confidence: p.confidence }, satiety,
     });
     setConfirmMealBusy(false);
-    if (r) { setMealPreview(null); toast.success('已入库', p.dish_name); }
+    if (r) { setMealPreview(null); toast.success('已入庫', p.dish_name); }
   }
 
   async function uploadBodyPhoto(b64: string) {
@@ -149,7 +148,7 @@ export function HomeContent() {
       }
       setBodyPreview(await r.json() as BodyPreview);
     } catch (e: unknown) {
-      toast.error('识别失败', (e as Error).message);
+      toast.error('識別失敗', (e as Error).message);
     } finally {
       setBodyExtractBusy(false);
     }
@@ -165,7 +164,7 @@ export function HomeContent() {
       source: 'screenshot', ai_raw_json: {},
     });
     setConfirmBodyBusy(false);
-    if (r) { setBodyPreview(null); toast.success('已入库', `${b.weight_kg} kg`); }
+    if (r) { setBodyPreview(null); toast.success('已入庫', `${b.weight_kg} kg`); }
   }
 
   async function triggerDailyAdvice() {
@@ -179,9 +178,9 @@ export function HomeContent() {
         throw new Error(e.error ?? `HTTP ${r.status}`);
       }
       const j = await r.json();
-      toast.info('今日总评', j.content_md.slice(0, 300));
+      toast.info('今日總評', j.content_md.slice(0, 300));
     } catch (e: unknown) {
-      toast.error('生成失败', (e as Error).message);
+      toast.error('生成失敗', (e as Error).message);
     } finally {
       setAdviceBusy(false);
     }
@@ -192,162 +191,164 @@ export function HomeContent() {
     location.href = '/login';
   }
 
-  const today = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' });
+  const today = new Date().toLocaleDateString('zh-TW', { month: 'long', day: 'numeric', weekday: 'long' });
 
   return (
     <>
-      <main className="min-h-dvh px-5 pt-6 pb-24 max-w-md mx-auto anim-enter">
-        {/* Header */}
-        <header className="flex items-start justify-between mb-7">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-1">{today}</p>
-            <h1 className="display-roman text-[34px] leading-none">
-              food <span className="display">·</span> food
-            </h1>
-          </div>
-          <button
-            onClick={() => setDrawerOpen(true)}
-            aria-label="open menu"
-            className="p-2 -mr-2 text-text-2 hover:text-text active:scale-95 transition-all rounded-md"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="4" y1="7" x2="20" y2="7" />
-              <line x1="4" y1="13" x2="20" y2="13" />
-              <line x1="4" y1="19" x2="14" y2="19" />
-            </svg>
-          </button>
-        </header>
-
-        {/* Push state + draft chip */}
-        <div className="flex items-center justify-between mb-6 min-h-[1.5rem]">
-          <PushEnableButton />
-          {draftCount > 0 && (
-            <div className="flex items-center gap-2 text-[11px] text-warm font-mono uppercase tracking-wide">
-              <Spinner size={10} className="text-warm" />
-              {draftCount} 待同步
+      <main className="min-h-dvh flex flex-col px-5 pt-6 pb-12 max-w-md mx-auto">
+        <div className="m-auto w-full anim-enter">
+          {/* Header */}
+          <header className="flex items-start justify-between mb-7">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-1">{today}</p>
+              <h1 className="display-roman text-[34px] leading-none">
+                food <span className="display">·</span> food
+              </h1>
             </div>
-          )}
-        </div>
+            <button
+              onClick={() => setDrawerOpen(true)}
+              aria-label="open menu"
+              className="p-2 -mr-2 text-text-2 hover:text-text active:scale-95 transition-all rounded-md"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="4" y1="7" x2="20" y2="7" />
+                <line x1="4" y1="13" x2="20" y2="13" />
+                <line x1="4" y1="19" x2="14" y2="19" />
+              </svg>
+            </button>
+          </header>
 
-        {/* Section: Preset meals */}
-        <section className="mb-7">
-          <SectionLabel>选健身餐</SectionLabel>
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(FITNESS_MEAL_PRESETS).map(([k, v]) => (
-              <button
-                key={k}
-                onClick={() => pickFitnessMeal(k, v.name)}
-                disabled={presetBusy !== null}
-                className={[
-                  'group relative bg-surface border border-hairline rounded-xl p-4 text-left transition-colors',
-                  'hover:border-hairline-strong hover:bg-surface-2',
-                  'active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed',
-                ].join(' ')}
-              >
-                <p className="text-[14px] text-text font-medium leading-tight">{v.name}</p>
-                <p className="text-[18px] font-mono text-accent tabular mt-2 leading-none">{v.kcal}<span className="text-[10px] text-text-3 ml-1">kcal</span></p>
-                {presetBusy === k && (
-                  <div className="absolute inset-0 bg-ink/60 backdrop-blur-sm rounded-xl flex items-center justify-center">
-                    <Spinner size={18} className="text-accent" />
-                  </div>
-                )}
-              </button>
-            ))}
+          {/* Push state + draft chip */}
+          <div className="flex items-center justify-between mb-6 min-h-[1.5rem]">
+            <PushEnableButton />
+            {draftCount > 0 && (
+              <div className="flex items-center gap-2 text-[11px] text-warm font-mono uppercase tracking-wide">
+                <Spinner size={10} className="text-warm" />
+                {draftCount} 待同步
+              </div>
+            )}
           </div>
-        </section>
 
-        {/* Section: Meal photo */}
-        <section className="mb-7">
-          <SectionLabel>拍餐 · 其他</SectionLabel>
-          {!mealPreview && !mealExtractBusy && (
-            <PhotoInput onPicked={uploadMealPhoto} label="拍照 / 选图识别" />
-          )}
-          {mealExtractBusy && (
-            <Card className="h-28 flex items-center justify-center gap-3">
-              <Spinner size={18} className="text-accent" />
-              <span className="text-[13px] text-text-2">AI 识别中…</span>
-            </Card>
-          )}
-          {mealPreview && (
-            <MealPreviewCard
-              initial={mealPreview}
-              onConfirm={confirmMeal}
-              onCancel={() => setMealPreview(null)}
-              busy={confirmMealBusy}
-            />
-          )}
-        </section>
+          {/* Section: Preset meals */}
+          <section className="mb-7">
+            <SectionLabel>選健身餐</SectionLabel>
+            <div className="grid grid-cols-2 gap-2">
+              {Object.entries(FITNESS_MEAL_PRESETS).map(([k, v]) => (
+                <button
+                  key={k}
+                  onClick={() => pickFitnessMeal(k, v.name)}
+                  disabled={presetBusy !== null}
+                  className={[
+                    'group relative bg-surface border border-hairline rounded-xl p-4 text-left transition-colors',
+                    'hover:border-hairline-strong hover:bg-surface-2',
+                    'active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed',
+                  ].join(' ')}
+                >
+                  <p className="text-[14px] text-text font-medium leading-tight">{v.name}</p>
+                  <p className="text-[18px] font-mono text-accent tabular mt-2 leading-none">{v.kcal}<span className="text-[10px] text-text-3 ml-1">kcal</span></p>
+                  {presetBusy === k && (
+                    <div className="absolute inset-0 bg-ink/60 backdrop-blur-sm rounded-xl flex items-center justify-center">
+                      <Spinner size={18} className="text-accent" />
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </section>
 
-        {/* Section: Body screenshot */}
-        <section className="mb-8">
-          <SectionLabel>体重 / 体脂截图</SectionLabel>
-          {!bodyPreview && !bodyExtractBusy && (
-            <PhotoInput onPicked={uploadBodyPhoto} label="上传体重秤截图" />
-          )}
-          {bodyExtractBusy && (
-            <Card className="h-28 flex items-center justify-center gap-3">
-              <Spinner size={18} className="text-accent" />
-              <span className="text-[13px] text-text-2">AI OCR 中…</span>
-            </Card>
-          )}
-          {bodyPreview && (
-            <BodyPreviewCard
-              initial={bodyPreview}
-              onConfirm={confirmBody}
-              onCancel={() => setBodyPreview(null)}
-              busy={confirmBodyBusy}
-            />
-          )}
-        </section>
+          {/* Section: Meal photo */}
+          <section className="mb-7">
+            <SectionLabel>拍餐 · 其他</SectionLabel>
+            {!mealPreview && !mealExtractBusy && (
+              <PhotoInput onPicked={uploadMealPhoto} label="拍照 / 選圖識別" />
+            )}
+            {mealExtractBusy && (
+              <Card className="h-28 flex items-center justify-center gap-3">
+                <Spinner size={18} className="text-accent" />
+                <span className="text-[13px] text-text-2">AI 識別中…</span>
+              </Card>
+            )}
+            {mealPreview && (
+              <MealPreviewCard
+                initial={mealPreview}
+                onConfirm={confirmMeal}
+                onCancel={() => setMealPreview(null)}
+                busy={confirmMealBusy}
+              />
+            )}
+          </section>
 
-        {/* Section: Daily advice CTA */}
-        <section>
-          <Button
-            onClick={triggerDailyAdvice}
-            loading={adviceBusy}
-            size="lg"
-            className="w-full"
-          >
-            {adviceBusy ? 'AI 思考中…' : '今天怎么样？'}
-          </Button>
-          <p className="text-center text-[11px] text-text-4 mt-2 font-mono uppercase tracking-wide">
-            AI generates a daily summary
-          </p>
-        </section>
+          {/* Section: Body screenshot */}
+          <section className="mb-8">
+            <SectionLabel>體重 / 體脂截圖</SectionLabel>
+            {!bodyPreview && !bodyExtractBusy && (
+              <PhotoInput onPicked={uploadBodyPhoto} label="上傳體重秤截圖" />
+            )}
+            {bodyExtractBusy && (
+              <Card className="h-28 flex items-center justify-center gap-3">
+                <Spinner size={18} className="text-accent" />
+                <span className="text-[13px] text-text-2">AI OCR 中…</span>
+              </Card>
+            )}
+            {bodyPreview && (
+              <BodyPreviewCard
+                initial={bodyPreview}
+                onConfirm={confirmBody}
+                onCancel={() => setBodyPreview(null)}
+                busy={confirmBodyBusy}
+              />
+            )}
+          </section>
+
+          {/* Section: Daily advice CTA */}
+          <section>
+            <Button
+              onClick={triggerDailyAdvice}
+              loading={adviceBusy}
+              size="lg"
+              className="w-full"
+            >
+              {adviceBusy ? 'AI 思考中…' : '今天怎麼樣？'}
+            </Button>
+            <p className="text-center text-[11px] text-text-4 mt-2 font-mono uppercase tracking-wide">
+              AI generates a daily summary
+            </p>
+          </section>
+        </div>
       </main>
 
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <DrawerItem
           icon={<IconBell />}
           label="通知中心"
-          hint="本周 / 本月建议、提醒"
+          hint="本週 / 本月建議、提醒"
           href="/inbox"
           onClick={() => setDrawerOpen(false)}
         />
         <DrawerItem
           icon={<IconSliders />}
-          label="修改目标"
+          label="修改目標"
           hint="卡路里 · 蛋白 · 碳水 · 脂肪"
           href="/settings"
           onClick={() => setDrawerOpen(false)}
         />
         <DrawerItem
           icon={<IconUser />}
-          label="个人数据"
-          hint="身高 / 体重 / 训练频率"
+          label="個人資料"
+          hint="身高 / 體重 / 訓練頻率"
           href="/setup"
           onClick={() => setDrawerOpen(false)}
         />
         <DrawerItem
           icon={<IconActivity />}
-          label="调试面板"
-          hint="AI 调用 · 错误日志 · cron"
+          label="偵錯面板"
+          hint="AI 呼叫 · 錯誤日誌 · cron"
           href="/admin/debug"
           onClick={() => setDrawerOpen(false)}
         />
         <DrawerItem
           icon={<IconLogout />}
-          label="退出登录"
+          label="登出"
           onClick={signOut}
           danger
         />

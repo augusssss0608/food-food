@@ -82,7 +82,7 @@ function ToastBubble({ item, onClose }: { item: ToastItem; onClose: () => void }
       </div>
       <button
         onClick={onClose}
-        aria-label="关闭"
+        aria-label="關閉"
         className="text-text-3 hover:text-text transition-colors -mr-1 -mt-1 p-1"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">

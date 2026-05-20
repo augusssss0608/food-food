@@ -29,9 +29,9 @@ export async function POST(req: Request) {
     if (e instanceof ForbiddenError) return new NextResponse('forbidden', { status: 403 });
     if (e instanceof ZodError) return NextResponse.json({ error: 'bad request', issues: e.issues }, { status: 400 });
     if (e instanceof AIError) {
-      if (e.category === 'rate_limit') return NextResponse.json({ error: '今日 AI 预算已用完' }, { status: 429 });
-      if (e.category === 'schema_invalid') return NextResponse.json({ error: 'AI 估算无效，转手动', category: 'schema_invalid' }, { status: 422 });
-      return NextResponse.json({ error: 'AI 不可用，转手动', category: e.category }, { status: 502 });
+      if (e.category === 'rate_limit') return NextResponse.json({ error: '今日 AI 預算已用完' }, { status: 429 });
+      if (e.category === 'schema_invalid') return NextResponse.json({ error: 'AI 估算無效，轉手動', category: 'schema_invalid' }, { status: 422 });
+      return NextResponse.json({ error: 'AI 不可用，轉手動', category: e.category }, { status: 502 });
     }
     const err = e as { message?: string; stack?: string };
     await writeAppError({ kind: 'ai_call', message: err.message, stack: err.stack });

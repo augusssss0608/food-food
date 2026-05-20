@@ -19,7 +19,7 @@ export function DebugSecretGate() {
         headers: { 'x-dev-secret': input, 'sec-fetch-site': 'same-origin' },
       });
       if (r.ok) location.reload();
-      else toast.error(r.status === 401 ? '会话已过期' : 'secret 错误');
+      else toast.error(r.status === 401 ? '工作階段已過期' : 'secret 錯誤');
     } finally {
       setBusy(false);
     }
@@ -30,8 +30,8 @@ export function DebugSecretGate() {
       <div className="w-full">
         <header className="mb-10 text-center">
           <p className="text-[11px] uppercase tracking-[0.32em] text-warm font-mono mb-3">restricted</p>
-          <h1 className="display-roman text-[36px] leading-tight">维护面板</h1>
-          <p className="text-text-2 text-[13px] mt-3">输入 DEV_SECRET 进入</p>
+          <h1 className="display-roman text-[36px] leading-tight">維護面板</h1>
+          <p className="text-text-2 text-[13px] mt-3">輸入 DEV_SECRET 進入</p>
         </header>
         <form onSubmit={submit} className="space-y-4">
           <Input
@@ -44,7 +44,7 @@ export function DebugSecretGate() {
             autoComplete="off"
           />
           <Button type="submit" size="lg" loading={busy} disabled={!input} className="w-full">
-            {busy ? '验证中…' : '进入'}
+            {busy ? '驗證中…' : '進入'}
           </Button>
         </form>
       </div>

@@ -70,7 +70,7 @@ export function BodyPreviewCard({
       <div className="flex gap-2 px-5 pb-5">
         <Button variant="secondary" onClick={onCancel} disabled={busy} className="flex-1">取消</Button>
         <Button onClick={() => onConfirm(data)} loading={busy} className="flex-1">
-          确认入库
+          確認入庫
         </Button>
       </div>
     </Card>

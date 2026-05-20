@@ -71,7 +71,7 @@ export async function POST(req: Request) {
     if (e instanceof CsrfError) return new NextResponse('forbidden', { status: 403 });
     if (e instanceof AuthError) return new NextResponse('unauthorized', { status: 401 });
     if (e instanceof ForbiddenError) return new NextResponse('forbidden', { status: 403 });
-    if (e instanceof AIError && e.category === 'rate_limit') return NextResponse.json({ error: '今日 AI 预算已用完' }, { status: 429 });
+    if (e instanceof AIError && e.category === 'rate_limit') return NextResponse.json({ error: '今日 AI 預算已用完' }, { status: 429 });
     const err = e as { message?: string; stack?: string };
     await writeAppError({ kind: 'ai_call', message: err.message, stack: err.stack });
     return NextResponse.json({ error: 'internal' }, { status: 500 });

@@ -59,17 +59,17 @@ export function PushEnableButton() {
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setState('subscribed');
-      toast.success('已订阅推送', '建议生成时会主动提醒');
+      toast.success('已訂閱推送', '建議生成時會主動提醒');
     } catch (e: unknown) {
       setState('error');
-      toast.error('订阅失败', (e as Error).message);
+      toast.error('訂閱失敗', (e as Error).message);
     }
   }
 
   if (state === 'unsupported') {
     return (
       <p className="text-[11px] uppercase tracking-[0.14em] text-text-4 font-mono">
-        本浏览器不支持推送
+        本瀏覽器不支援推送
       </p>
     );
   }
@@ -77,7 +77,7 @@ export function PushEnableButton() {
     return (
       <div className="flex items-center gap-2 text-[12px] text-warm">
         <span className="w-1.5 h-1.5 rounded-full bg-warm anim-pulse-soft" />
-        通知权限被拒，无法订阅推送
+        通知權限被拒，無法訂閱推送
       </div>
     );
   }
@@ -85,7 +85,7 @@ export function PushEnableButton() {
     return (
       <div className="flex items-center gap-2 text-[12px] text-success">
         <span className="w-1.5 h-1.5 rounded-full bg-success" />
-        推送已开启
+        推送已開啟
       </div>
     );
   }
@@ -101,14 +101,14 @@ export function PushEnableButton() {
       {state === 'busy' ? (
         <>
           <Spinner size={12} className="text-accent" />
-          订阅中…
+          訂閱中…
         </>
       ) : (
         <>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
           </svg>
-          开启推送
+          開啟推送
         </>
       )}
     </button>

@@ -6,7 +6,7 @@ import { Spinner } from '@/components/ui/spinner';
 
 export function PhotoInput({
   onPicked,
-  label = '选择照片',
+  label = '選擇照片',
 }: {
   onPicked: (b64: string, file: File) => void;
   label?: string;
@@ -55,7 +55,7 @@ export function PhotoInput({
         {busy ? (
           <>
             <Spinner size={20} className="text-accent" />
-            <span className="text-[12px] text-text-2">处理图片中…</span>
+            <span className="text-[12px] text-text-2">處理圖片中…</span>
           </>
         ) : (
           <>

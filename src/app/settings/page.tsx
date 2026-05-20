@@ -19,13 +19,13 @@ type ProfileRow = {
 };
 
 const FIELDS: { key: keyof Omit<ProfileRow, 'user_id'>; label: string; suffix: string; group: 'energy' | 'macro' }[] = [
-  { key: 'kcal_workout_day', label: '训练日卡路里', suffix: 'kcal', group: 'energy' },
+  { key: 'kcal_workout_day', label: '訓練日卡路里', suffix: 'kcal', group: 'energy' },
   { key: 'kcal_rest_day', label: '休息日卡路里', suffix: 'kcal', group: 'energy' },
-  { key: 'protein_g', label: '蛋白质', suffix: 'g', group: 'macro' },
-  { key: 'carb_workout_day', label: '碳水（训练日）', suffix: 'g', group: 'macro' },
-  { key: 'carb_rest_day', label: '碳水（休息日）', suffix: 'g', group: 'macro' },
+  { key: 'protein_g', label: '蛋白質', suffix: 'g', group: 'macro' },
+  { key: 'carb_workout_day', label: '碳水(訓練日)', suffix: 'g', group: 'macro' },
+  { key: 'carb_rest_day', label: '碳水(休息日)', suffix: 'g', group: 'macro' },
   { key: 'fat_g', label: '脂肪', suffix: 'g', group: 'macro' },
-  { key: 'fiber_g', label: '膳食纤维', suffix: 'g', group: 'macro' },
+  { key: 'fiber_g', label: '膳食纖維', suffix: 'g', group: 'macro' },
 ];
 
 export default function SettingsPage() {
@@ -52,15 +52,15 @@ export default function SettingsPage() {
       updated_at: new Date().toISOString(),
     } as never).eq('user_id', profile.user_id);
     setBusy(false);
-    if (r.error) toast.error('保存失败', r.error.message);
-    else toast.success('已保存', '目标已更新');
+    if (r.error) toast.error('儲存失敗', r.error.message);
+    else toast.success('已儲存', '目標已更新');
   }
 
   if (loadError) {
     return (
-      <main className="min-h-dvh px-6 py-16 max-w-md mx-auto">
-        <Card className="p-5">
-          <p className="text-danger text-[14px]">读取 profile 失败</p>
+      <main className="min-h-dvh flex flex-col px-6 py-16 max-w-md mx-auto">
+        <Card className="m-auto p-5 w-full">
+          <p className="text-danger text-[14px]">讀取 profile 失敗</p>
           <p className="text-text-3 text-[12px] mt-1">{loadError}</p>
         </Card>
       </main>
@@ -68,8 +68,10 @@ export default function SettingsPage() {
   }
   if (!profile) {
     return (
-      <main className="min-h-dvh px-5 py-8 max-w-md mx-auto">
-        <Skeleton />
+      <main className="min-h-dvh flex flex-col px-5 py-8 max-w-md mx-auto">
+        <div className="m-auto w-full">
+          <Skeleton />
+        </div>
       </main>
     );
   }
@@ -78,51 +80,53 @@ export default function SettingsPage() {
   const macro = FIELDS.filter((f) => f.group === 'macro');
 
   return (
-    <main className="min-h-dvh px-5 py-8 max-w-md mx-auto anim-enter">
-      <header className="flex items-baseline justify-between mb-8">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">targets</p>
-          <h1 className="display-roman text-[32px] leading-none">修改目标</h1>
+    <main className="min-h-dvh flex flex-col px-5 py-8 max-w-md mx-auto">
+      <div className="m-auto w-full anim-enter">
+        <header className="flex items-baseline justify-between mb-8">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">targets</p>
+            <h1 className="display-roman text-[32px] leading-none">修改目標</h1>
+          </div>
+          <Link href="/" className="text-[13px] text-text-3 hover:text-text transition-colors">← 主頁</Link>
+        </header>
+
+        <Section title="能量">
+          {energy.map((f) => (
+            <Input
+              key={f.key}
+              id={f.key}
+              label={f.label}
+              type="number"
+              value={profile[f.key] ?? 0}
+              onChange={(e) =>
+                setProfile({ ...profile, [f.key]: Number(e.target.value) })
+              }
+              suffix={f.suffix}
+            />
+          ))}
+        </Section>
+
+        <Section title="宏量營養">
+          {macro.map((f) => (
+            <Input
+              key={f.key}
+              id={f.key}
+              label={f.label}
+              type="number"
+              value={profile[f.key] ?? 0}
+              onChange={(e) =>
+                setProfile({ ...profile, [f.key]: Number(e.target.value) })
+              }
+              suffix={f.suffix}
+            />
+          ))}
+        </Section>
+
+        <div className="mt-8">
+          <Button size="lg" onClick={save} loading={busy} className="w-full">
+            {busy ? '儲存中…' : '儲存目標'}
+          </Button>
         </div>
-        <Link href="/" className="text-[13px] text-text-3 hover:text-text transition-colors">← 主页</Link>
-      </header>
-
-      <Section title="能量">
-        {energy.map((f) => (
-          <Input
-            key={f.key}
-            id={f.key}
-            label={f.label}
-            type="number"
-            value={profile[f.key] ?? 0}
-            onChange={(e) =>
-              setProfile({ ...profile, [f.key]: Number(e.target.value) })
-            }
-            suffix={f.suffix}
-          />
-        ))}
-      </Section>
-
-      <Section title="宏量营养">
-        {macro.map((f) => (
-          <Input
-            key={f.key}
-            id={f.key}
-            label={f.label}
-            type="number"
-            value={profile[f.key] ?? 0}
-            onChange={(e) =>
-              setProfile({ ...profile, [f.key]: Number(e.target.value) })
-            }
-            suffix={f.suffix}
-          />
-        ))}
-      </Section>
-
-      <div className="mt-8">
-        <Button size="lg" onClick={save} loading={busy} className="w-full">
-          {busy ? '保存中…' : '保存目标'}
-        </Button>
       </div>
     </main>
   );

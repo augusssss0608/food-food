@@ -76,7 +76,7 @@ export function MealPreviewCard({
 
         <div className="flex items-center gap-3 pt-1">
           <label htmlFor="mp-sat" className="text-[12px] uppercase tracking-[0.14em] text-text-3 font-mono w-20 flex-shrink-0">
-            饱腹感
+            飽腹感
           </label>
           <div className="flex-1 flex gap-1.5">
             {[1, 2, 3, 4, 5].map((n) => (
@@ -98,14 +98,14 @@ export function MealPreviewCard({
         </div>
 
         <p className="text-[11px] text-text-4 mt-3">
-          ⓘ 照片仅用于估算，确认后不保留。
+          ⓘ 照片僅用於估算，確認後不保留。
         </p>
       </div>
 
       <div className="flex gap-2 px-5 pb-5">
         <Button variant="secondary" onClick={onCancel} disabled={busy} className="flex-1">取消</Button>
         <Button onClick={() => onConfirm(data, satiety)} loading={busy} className="flex-1">
-          确认入库
+          確認入庫
         </Button>
       </div>
     </Card>

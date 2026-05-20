@@ -15,13 +15,13 @@ export default function LoginPage() {
   async function signIn(e: React.FormEvent) {
     e.preventDefault();
     if (!email || !password) {
-      toast.error('请填邮箱和密码');
+      toast.error('請填郵箱和密碼');
       return;
     }
     setBusy(true);
     const { error } = await supa.auth.signInWithPassword({ email, password });
     if (error) {
-      toast.error('登录失败', error.message);
+      toast.error('登入失敗', error.message);
       setBusy(false);
       return;
     }
@@ -30,7 +30,7 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-dvh flex flex-col px-6 py-12 max-w-md mx-auto">
-      <div className="flex-1 flex flex-col justify-center anim-enter">
+      <div className="m-auto w-full anim-enter">
         <header className="mb-12">
           <p className="text-[11px] uppercase tracking-[0.32em] text-accent font-mono mb-3">FOOD · FOOD</p>
           <h1 className="display-roman text-[44px] leading-[0.95] tracking-tight">
@@ -39,7 +39,7 @@ export default function LoginPage() {
             <span className="display">fitness lab.</span>
           </h1>
           <p className="text-text-2 text-[14px] mt-4 leading-relaxed">
-            登录追踪每一餐，每一次称重，每一周的进展。
+            登入追蹤每一餐、每一次稱重、每一週的進展。
           </p>
         </header>
 
@@ -47,7 +47,7 @@ export default function LoginPage() {
           <Input
             id="email"
             type="email"
-            label="邮箱"
+            label="郵箱"
             placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -58,7 +58,7 @@ export default function LoginPage() {
           <Input
             id="password"
             type="password"
-            label="密码"
+            label="密碼"
             placeholder="••••••••"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -67,7 +67,7 @@ export default function LoginPage() {
           />
           <div className="pt-3">
             <Button type="submit" size="lg" loading={busy} className="w-full">
-              {busy ? '验证中…' : '进入'}
+              {busy ? '驗證中…' : '進入'}
             </Button>
           </div>
         </form>

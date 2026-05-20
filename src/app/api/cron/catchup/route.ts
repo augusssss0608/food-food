@@ -71,8 +71,8 @@ async function checkBodyMetricsOverdue(userId: string): Promise<void> {
     user_id: userId,
     type: 'body_metrics_overdue',
     ref_id: refId,
-    title: '该称重了',
-    body: '已经 3 天没记录体重',
+    title: '該稱重了',
+    body: '已經 3 天沒記錄體重',
     data: { type: 'body_metrics_overdue', lastMeasuredAt: lastMeasured },
   });
   if (inboxErr && (inboxErr as { code?: string }).code !== '23505') {
@@ -86,6 +86,6 @@ async function checkBodyMetricsOverdue(userId: string): Promise<void> {
 
   await trySendPushOnce({
     userId, type: 'body_metrics_overdue', refId,
-    title: '该称重了', body: '已经 3 天没记录体重', data: { lastMeasuredAt: lastMeasured ?? null },
+    title: '該稱重了', body: '已經 3 天沒記錄體重', data: { lastMeasuredAt: lastMeasured ?? null },
   });
 }

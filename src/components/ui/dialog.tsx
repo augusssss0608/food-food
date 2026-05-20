@@ -17,7 +17,7 @@ type Props = {
 export function Dialog({
   open, title, body,
   onCancel, onConfirm,
-  confirmText = '确认',
+  confirmText = '確認',
   cancelText = '取消',
   variant = 'default',
   busy = false,

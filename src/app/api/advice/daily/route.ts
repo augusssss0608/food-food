@@ -91,8 +91,8 @@ export async function POST(req: Request) {
     if (e instanceof CsrfError) return new NextResponse('forbidden', { status: 403 });
     if (e instanceof AuthError) return new NextResponse('unauthorized', { status: 401 });
     if (e instanceof ForbiddenError) return new NextResponse('forbidden', { status: 403 });
-    if (e instanceof AIError && e.category === 'rate_limit') return NextResponse.json({ error: '今日 AI 预算已用完' }, { status: 429 });
-    if (e instanceof AIError) return NextResponse.json({ error: 'AI 不可用，请稍后重试', category: e.category }, { status: 502 });
+    if (e instanceof AIError && e.category === 'rate_limit') return NextResponse.json({ error: '今日 AI 預算已用完' }, { status: 429 });
+    if (e instanceof AIError) return NextResponse.json({ error: 'AI 不可用，請稍後重試', category: e.category }, { status: 502 });
     const err = e as { message?: string; stack?: string };
     await writeAppError({ kind: 'ai_call', message: err.message, stack: err.stack });
     return NextResponse.json({ error: 'internal' }, { status: 500 });

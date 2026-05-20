@@ -42,7 +42,7 @@ export default async function AdminDebugPage() {
           <p className="text-[11px] uppercase tracking-[0.24em] text-warm font-mono mb-1">restricted · admin</p>
           <h1 className="display-roman text-[32px] leading-none">debug</h1>
         </div>
-        <Link href="/" className="text-[13px] text-text-3 hover:text-text transition-colors">← 主页</Link>
+        <Link href="/" className="text-[13px] text-text-3 hover:text-text transition-colors">← 主頁</Link>
       </header>
 
       {/* Summary stat cards */}
@@ -56,7 +56,7 @@ export default async function AdminDebugPage() {
         />
       </div>
 
-      <Section title="最近 50 条 AI 调用">
+      <Section title="最近 50 條 AI 呼叫">
         <Table
           headers={['correlation_id', 'kind', 'trigger', 'provider', 'status', 'attempt', 'latency_ms', 'cost($)', 'started_at']}
           rows={aiCalls.map((r) => ({
@@ -73,13 +73,13 @@ export default async function AdminDebugPage() {
               <span key="t" className="font-mono text-[11px] text-text-3 tabular">{r.started_at?.slice(0, 19)}</span>,
             ],
           }))}
-          empty="无 AI 调用记录"
+          empty="無 AI 呼叫記錄"
         />
       </Section>
 
-      <Section title="最近 50 条错误日志">
+      <Section title="最近 50 條錯誤日誌">
         {appErrors.length === 0 ? (
-          <Empty>无错误，好事</Empty>
+          <Empty>無錯誤，好事</Empty>
         ) : (
           <ul className="space-y-2">
             {appErrors.map((e) => (
@@ -100,7 +100,7 @@ export default async function AdminDebugPage() {
         )}
       </Section>
 
-      <Section title="预算">
+      <Section title="預算">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Card className="p-4">
             <p className="text-[11px] uppercase tracking-[0.16em] text-text-3 font-mono mb-2">daily (last 7)</p>
@@ -113,7 +113,7 @@ export default async function AdminDebugPage() {
         </div>
       </Section>
 
-      <Section title="Cron Runs（最近 30 条）">
+      <Section title="Cron Runs(最近 30 條)">
         <Table
           headers={['job_name', 'run_key', 'status', 'started_at', 'finished_at']}
           rows={cronRuns.map((r) => ({
@@ -126,7 +126,7 @@ export default async function AdminDebugPage() {
               <span key="s2" className="font-mono text-[11px] text-text-3 tabular">{r.finished_at?.slice(0, 19) ?? '—'}</span>,
             ],
           }))}
-          empty="还没跑过 cron"
+          empty="還沒跑過 cron"
         />
       </Section>
     </main>
