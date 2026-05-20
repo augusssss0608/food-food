@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
 import { NumberInput, isEmptyNum } from '@/components/ui/number-input';
+import { PageShell } from '@/components/ui/page-shell';
 import { useToast } from '@/components/ui/toast';
 
 const NUM_SECTIONS = [
@@ -70,8 +71,7 @@ export function SetupForm({ initial }: { initial?: SetupInitial } = {}) {
   }
 
   return (
-    <main className="min-h-dvh flex flex-col px-6 py-10 max-w-md mx-auto">
-      <div className="m-auto w-full">
+    <PageShell px="px-6">
         <header className="mb-8">
           <p className="text-[11px] uppercase tracking-[0.28em] text-accent font-mono mb-2">step 01 / 01</p>
           <h1 className="display-roman text-[36px] leading-[0.95]">
@@ -122,7 +122,6 @@ export function SetupForm({ initial }: { initial?: SetupInitial } = {}) {
             資料可在「修改目標」裡隨時調整
           </p>
         </div>
-      </div>
-    </main>
+    </PageShell>
   );
 }

@@ -25,10 +25,11 @@ export function Drawer({
 
   return (
     <>
+      {/* overlay — 純 dim，不要 backdrop-blur，避免主畫面模糊感（用戶反饋） */}
       <div
         aria-hidden={!open}
         className={[
-          'fixed inset-0 z-40 bg-ink/60 backdrop-blur-sm transition-opacity duration-200',
+          'fixed inset-0 z-40 bg-ink/70 transition-opacity duration-200',
           open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
         ].join(' ')}
         onClick={onClose}
@@ -36,13 +37,20 @@ export function Drawer({
       <aside
         aria-hidden={!open}
         className={[
-          'fixed top-0 right-0 z-50 h-full w-[min(320px,86vw)] bg-surface border-l border-hairline shadow-2xl shadow-black/60',
+          // h-dvh 而不是 h-full：確保是 viewport 高度，配合下面 safe-area padding，
+          // 底部 home indicator 區的內容不會被截掉（用戶反饋 "V0.1" 半截）
+          'fixed top-0 right-0 z-50 h-dvh w-[min(320px,86vw)] bg-surface border-l border-hairline shadow-2xl shadow-black/60',
+          'flex flex-col',
           'transform transition-transform duration-300',
           open ? 'translate-x-0' : 'translate-x-full',
         ].join(' ')}
-        style={{ transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
       >
-        <div className="flex items-center justify-between px-5 h-14 border-b border-hairline">
+        <div className="flex items-center justify-between px-5 h-14 border-b border-hairline flex-shrink-0">
           <span className="text-[11px] uppercase tracking-[0.2em] text-text-3 font-medium">
             {title ?? 'Menu'}
           </span>

@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PageShell } from '@/components/ui/page-shell';
 import { useToast } from '@/components/ui/toast';
 
 export function DebugSecretGate() {
@@ -26,8 +27,7 @@ export function DebugSecretGate() {
   }
 
   return (
-    <main className="min-h-dvh flex items-center px-6 max-w-md mx-auto">
-      <div className="w-full">
+    <PageShell px="px-6">
         <header className="mb-10 text-center">
           <p className="text-[11px] uppercase tracking-[0.32em] text-warm font-mono mb-3">restricted</p>
           <h1 className="display-roman text-[36px] leading-tight">維護面板</h1>
@@ -47,7 +47,6 @@ export function DebugSecretGate() {
             {busy ? '驗證中…' : '進入'}
           </Button>
         </form>
-      </div>
-    </main>
+    </PageShell>
   );
 }

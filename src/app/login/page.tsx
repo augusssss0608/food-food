@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PageShell } from '@/components/ui/page-shell';
 import { useToast } from '@/components/ui/toast';
 
 export default function LoginPage() {
@@ -29,8 +30,14 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-dvh flex flex-col px-6 py-12 max-w-md mx-auto">
-      <div className="m-auto w-full">
+    <PageShell
+      px="px-6"
+      footer={
+        <footer className="text-[11px] uppercase tracking-[0.16em] text-text-4 font-mono text-center">
+          v0.1 · single-user beta
+        </footer>
+      }
+    >
         <header className="mb-12">
           <p className="text-[11px] uppercase tracking-[0.32em] text-accent font-mono mb-3">FOOD · FOOD</p>
           <h1 className="display-roman text-[44px] leading-[0.95] tracking-tight">
@@ -71,11 +78,6 @@ export default function LoginPage() {
             </Button>
           </div>
         </form>
-      </div>
-
-      <footer className="text-[11px] uppercase tracking-[0.16em] text-text-4 font-mono text-center">
-        v0.1 · single-user beta
-      </footer>
-    </main>
+    </PageShell>
   );
 }

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, SectionLabel } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { Drawer, DrawerItem } from '@/components/ui/drawer';
+import { PageShell } from '@/components/ui/page-shell';
 import { useToast } from '@/components/ui/toast';
 
 type DraftPayload = { endpoint: string; body: Record<string, unknown>; idempotencyKey: string };
@@ -195,8 +196,7 @@ export function HomeContent() {
 
   return (
     <>
-      <main className="min-h-dvh flex flex-col px-5 pt-6 pb-12 max-w-md mx-auto">
-        <div className="m-auto w-full">
+      <PageShell>
           {/* Header */}
           <header className="flex items-start justify-between mb-7">
             <div>
@@ -314,8 +314,7 @@ export function HomeContent() {
               AI generates a daily summary
             </p>
           </section>
-        </div>
-      </main>
+      </PageShell>
 
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <DrawerItem

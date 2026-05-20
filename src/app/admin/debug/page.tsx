@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { cookies } from 'next/headers';
 import { DebugSecretGate } from '@/components/debug-secret-gate';
 import { Card } from '@/components/ui/card';
+import { PageShell } from '@/components/ui/page-shell';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,7 @@ export default async function AdminDebugPage() {
   const cronRuns = (cronRunsRes.data ?? []) as CronRunRow[];
 
   return (
-    <main className="min-h-dvh px-5 py-8 max-w-5xl mx-auto">
+    <PageShell wide topAlign>
       <header className="flex items-baseline justify-between mb-10">
         <div>
           <p className="text-[11px] uppercase tracking-[0.24em] text-warm font-mono mb-1">restricted · admin</p>
@@ -129,7 +130,7 @@ export default async function AdminDebugPage() {
           empty="還沒跑過 cron"
         />
       </Section>
-    </main>
+    </PageShell>
   );
 }
 

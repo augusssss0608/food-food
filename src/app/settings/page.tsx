@@ -5,6 +5,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { Button } from '@/components/ui/button';
 import { NumberInput, isEmptyNum } from '@/components/ui/number-input';
 import { Card } from '@/components/ui/card';
+import { PageShell } from '@/components/ui/page-shell';
 import { useToast } from '@/components/ui/toast';
 
 type NumKey =
@@ -78,21 +79,19 @@ export default function SettingsPage() {
 
   if (loadError) {
     return (
-      <main className="min-h-dvh flex flex-col px-6 py-16 max-w-md mx-auto">
-        <Card className="m-auto p-5 w-full">
+      <PageShell px="px-6">
+        <Card className="p-5 w-full">
           <p className="text-danger text-[14px]">讀取 profile 失敗</p>
           <p className="text-text-3 text-[12px] mt-1">{loadError}</p>
         </Card>
-      </main>
+      </PageShell>
     );
   }
   if (!profile) {
     return (
-      <main className="min-h-dvh flex flex-col px-5 py-8 max-w-md mx-auto">
-        <div className="m-auto w-full">
-          <Skeleton />
-        </div>
-      </main>
+      <PageShell>
+        <Skeleton />
+      </PageShell>
     );
   }
 
@@ -100,8 +99,7 @@ export default function SettingsPage() {
   const macro = FIELDS.filter((f) => f.group === 'macro');
 
   return (
-    <main className="min-h-dvh flex flex-col px-5 py-8 max-w-md mx-auto">
-      <div className="m-auto w-full">
+    <PageShell>
         <header className="flex items-baseline justify-between mb-8">
           <div>
             <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">targets</p>
@@ -141,8 +139,7 @@ export default function SettingsPage() {
             {busy ? '儲存中…' : '儲存目標'}
           </Button>
         </div>
-      </div>
-    </main>
+    </PageShell>
   );
 }
 

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { Card } from '@/components/ui/card';
+import { PageShell } from '@/components/ui/page-shell';
 
 type InboxRow = {
   id: string;
@@ -22,9 +23,9 @@ export default async function InboxPage() {
   const { data } = await supa.from('inbox').select('*').order('created_at', { ascending: false }).limit(50);
   const items = (data ?? []) as InboxRow[];
 
+  // items 多 → 列表從頂向下滾，topAlign；空態 → 自動垂直置中
   return (
-    <main className="min-h-dvh flex flex-col px-5 py-8 max-w-md mx-auto">
-      <div className={`${items.length === 0 ? 'm-auto' : 'mt-2'} w-full`}>
+    <PageShell topAlign={items.length > 0}>
         <header className="flex items-baseline justify-between mb-8">
           <div>
             <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">inbox</p>
@@ -67,8 +68,7 @@ export default async function InboxPage() {
             ))}
           </ul>
         )}
-      </div>
-    </main>
+    </PageShell>
   );
 }
 
