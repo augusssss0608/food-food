@@ -1,6 +1,9 @@
 'use client';
-import { useMemo } from 'react';
+import { useMemo, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { SectionLabel } from './ui/card';
+import { Dialog } from './ui/dialog';
+import { useToast } from './ui/toast';
 
 type Metric = {
   key: 'kcal' | 'protein_g' | 'carb_g' | 'fat_g';
@@ -12,19 +15,33 @@ type Metric = {
 };
 
 /**
- * 今日摘要：4 個指標環（kcal / 蛋白 / 碳水 / 脂肪）。
- * over-target：ring stroke clamp 100% 不繞第二圈，center text 顯示實際 % 並 warm 色。
+ * 今日摘要：4 個指標環。
+ *
+ * 「訓練日 / 休息日」標籤行為（用戶要求）：
+ *   - workoutMarked = false：右上不顯示標籤（toggle 在主頁另一處顯示）
+ *   - workoutMarked = true：右上顯示「訓練日 / 休息日」按鈕，點擊 → Dialog 確認 → 切換到另一種
+ *
  * 全部 target = 0 → 顯示「請先選擇今日狀態」提示，不畫空環。
  */
 export function TodaySummary({
   consumed,
   targets,
-  workoutHint,
+  workoutMarked,
+  isWorkoutDay,
+  todayDate,
 }: {
   consumed: { kcal: number; protein_g: number; carb_g: number; fat_g: number };
   targets: { kcal: number; protein_g: number; carb_g: number; fat_g: number };
-  workoutHint?: string;
+  workoutMarked: boolean;
+  isWorkoutDay: boolean;
+  todayDate: string;
 }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [, startTransition] = useTransition();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
   const metrics: Metric[] = useMemo(() => [
     { key: 'kcal', label: 'kcal', consumed: consumed.kcal, target: targets.kcal, unit: '', color: '#c8ff00' },
     { key: 'protein_g', label: '蛋白', consumed: consumed.protein_g, target: targets.protein_g, unit: 'g', color: '#ff7a45' },
@@ -32,17 +49,43 @@ export function TodaySummary({
     { key: 'fat_g', label: '脂肪', consumed: consumed.fat_g, target: targets.fat_g, unit: 'g', color: '#a4a4ac' },
   ], [consumed, targets]);
 
-  // 沒有任何 target → 用戶還沒選 workout/rest → 顯示提示而不是 0/0 環
   const allZero = metrics.every((m) => m.target <= 0);
+  const currentLabel = isWorkoutDay ? '訓練日' : '休息日';
+  const otherLabel = isWorkoutDay ? '休息日' : '訓練日';
+
+  async function doSwitch() {
+    setBusy(true);
+    try {
+      const r = await fetch('/api/workout-day', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'sec-fetch-site': 'same-origin' },
+        body: JSON.stringify({ date: todayDate, is_workout: !isWorkoutDay }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+        throw new Error(j.error ?? `HTTP ${r.status}`);
+      }
+      setConfirmOpen(false);
+      startTransition(() => router.refresh());
+    } catch (e: unknown) {
+      toast.error('切換失敗', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <section className="mb-7">
       <div className="flex items-baseline justify-between mb-3">
         <SectionLabel>今日摘要</SectionLabel>
-        {workoutHint && (
-          <span className="text-[10px] uppercase tracking-[0.18em] text-text-4 font-mono">
-            {workoutHint}
-          </span>
+        {workoutMarked && (
+          <button
+            type="button"
+            onClick={() => setConfirmOpen(true)}
+            className="text-[10px] uppercase tracking-[0.18em] text-text-3 font-mono hover:text-text active:scale-95 transition-all px-1 -mr-1"
+          >
+            {currentLabel}
+          </button>
         )}
       </div>
 
@@ -56,6 +99,17 @@ export function TodaySummary({
           {metrics.map((m) => <RingCard key={m.key} m={m} />)}
         </div>
       )}
+
+      <Dialog
+        open={confirmOpen}
+        title={`切換到${otherLabel}？`}
+        body={`今日已標記為${currentLabel}，確認切換到${otherLabel}並重算目標？`}
+        confirmText="切換"
+        cancelText="取消"
+        onConfirm={doSwitch}
+        onCancel={() => setConfirmOpen(false)}
+        busy={busy}
+      />
     </section>
   );
 }

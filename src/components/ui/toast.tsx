@@ -51,11 +51,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={api}>
       {children}
-      {/*
-        toast 定位全 inline style 寫死：Tailwind v4 對 `top-3 left-1/2 -translate-x-1/2`
-        在這個項目下沒編譯出來，導致 div 落到 body 末尾 normal flow（畫面下方）。
-        加上 safe-area-inset-top 讓 toast 在 iOS PWA 顯示在狀態欄下方。
-      */}
       <div
         data-toast-root
         className="flex flex-col gap-2 pointer-events-none"
@@ -76,16 +71,57 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * 單個 toast。支持向上滑動關閉（用戶要求，並移除右上角 ✕ 按鈕）：
+ * - touchstart 記錄起點 Y
+ * - touchmove 跟手上移（向下無視）
+ * - touchend 超過閾值 → onClose；否則彈回原位
+ */
 function ToastBubble({ item, onClose }: { item: ToastItem; onClose: () => void }) {
   const stripe = item.kind === 'success' ? 'bg-accent' : item.kind === 'error' ? 'bg-danger' : 'bg-text-3';
+  const [dragY, setDragY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const startY = useRef<number | null>(null);
+
+  function onTouchStart(e: React.TouchEvent) {
+    const t = e.touches[0];
+    if (!t) return;
+    startY.current = t.clientY;
+    setDragging(true);
+  }
+  function onTouchMove(e: React.TouchEvent) {
+    if (startY.current == null) return;
+    const t = e.touches[0];
+    if (!t) return;
+    const delta = t.clientY - startY.current;
+    // 只跟向上滑（delta < 0）；向下不動
+    setDragY(delta < 0 ? delta : 0);
+  }
+  function onTouchEnd() {
+    setDragging(false);
+    // 滑超過 40px 視為關閉意圖
+    if (dragY < -40) onClose();
+    else setDragY(0);
+    startY.current = null;
+  }
+
+  // closing 動畫優先；正在拖動時也用拖動 transform；其他用入場動畫
+  const animation = item.closing
+    ? 'ff-toast-out 0.2s ease-out forwards'
+    : (dragging ? 'none' : 'ff-toast-in 0.32s var(--ease-spring) both');
+
   return (
     <div
       role="status"
-      className="pointer-events-auto flex gap-3 items-start bg-surface-2/95 backdrop-blur border border-hairline rounded-xl shadow-2xl shadow-black/60 px-4 py-3"
+      className="pointer-events-auto flex gap-3 items-start bg-surface-2/95 backdrop-blur border border-hairline rounded-xl shadow-2xl shadow-black/60 px-4 py-3 select-none"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
       style={{
-        animation: item.closing
-          ? 'ff-toast-out 0.2s ease-out forwards'
-          : 'ff-toast-in 0.32s var(--ease-spring) both',
+        animation,
+        transform: dragging ? `translateY(${dragY}px)` : undefined,
+        transition: dragging ? 'none' : 'transform 0.18s ease-out',
       }}
     >
       <span className={`w-1 self-stretch rounded-full ${stripe}`} />
@@ -93,15 +129,6 @@ function ToastBubble({ item, onClose }: { item: ToastItem; onClose: () => void }
         <p className="text-[13px] leading-snug font-medium text-text">{item.title}</p>
         {item.body && <p className="text-[12px] leading-snug text-text-2 mt-0.5">{item.body}</p>}
       </div>
-      <button
-        onClick={onClose}
-        aria-label="關閉"
-        className="text-text-3 hover:text-text transition-colors -mr-1 -mt-1 p-1"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-          <path d="M18 6L6 18M6 6l12 12" />
-        </svg>
-      </button>
     </div>
   );
 }

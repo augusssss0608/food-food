@@ -1,10 +1,10 @@
 'use client';
 import { useState } from 'react';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
 import { NumberInput, isEmptyNum } from '@/components/ui/number-input';
 import { PageShell } from '@/components/ui/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { useToast } from '@/components/ui/toast';
 
 const NUM_SECTIONS = [
@@ -86,39 +86,29 @@ export function SetupForm({
 
   return (
     <PageShell px="px-6">
-        {m === 'edit' && (
-          <Link
-            href="/"
-            prefetch
-            replace
-            className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
-          >
-            ← 主頁
-          </Link>
+        {m === 'onboarding' ? (
+          // 首次 onboarding：沒有 drawer 入口，純標題 header
+          <header className="mb-8">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-accent font-mono mb-2">step 01 / 01</p>
+            <h1 className="display-roman text-[36px] leading-[0.95]">
+              告訴我你的<span className="display">起點</span>
+            </h1>
+            <p className="text-text-2 text-[14px] mt-3 leading-relaxed">
+              AI 會基於這些資料為你算出每日卡路里、蛋白、碳水、脂肪目標。
+            </p>
+          </header>
+        ) : (
+          // drawer 進入的編輯模式：用 PageHeader 提供 hamburger 入口
+          <PageHeader>
+            <p className="text-[11px] uppercase tracking-[0.28em] text-text-3 font-mono mb-2">profile</p>
+            <h1 className="display-roman text-[36px] leading-[0.95]">
+              個人<span className="display">資料</span>
+            </h1>
+            <p className="text-text-2 text-[14px] mt-3 leading-relaxed">
+              修改身高 / 體重 / 訓練頻率，會基於新值重新計算目標。
+            </p>
+          </PageHeader>
         )}
-        <header className="mb-8">
-          {m === 'onboarding' ? (
-            <>
-              <p className="text-[11px] uppercase tracking-[0.28em] text-accent font-mono mb-2">step 01 / 01</p>
-              <h1 className="display-roman text-[36px] leading-[0.95]">
-                告訴我你的<span className="display">起點</span>
-              </h1>
-              <p className="text-text-2 text-[14px] mt-3 leading-relaxed">
-                AI 會基於這些資料為你算出每日卡路里、蛋白、碳水、脂肪目標。
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-[11px] uppercase tracking-[0.28em] text-text-3 font-mono mb-2">profile</p>
-              <h1 className="display-roman text-[36px] leading-[0.95]">
-                個人<span className="display">資料</span>
-              </h1>
-              <p className="text-text-2 text-[14px] mt-3 leading-relaxed">
-                修改身高 / 體重 / 訓練頻率，會基於新值重新計算目標。
-              </p>
-            </>
-          )}
-        </header>
 
         <div className="space-y-4">
           {NUM_SECTIONS.map((s) => (

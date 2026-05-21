@@ -1,7 +1,7 @@
-import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { Card } from '@/components/ui/card';
 import { PageShell } from '@/components/ui/page-shell';
+import { PageHeader } from '@/components/page-header';
 
 type InboxRow = {
   id: string;
@@ -25,18 +25,10 @@ export default async function InboxPage() {
 
   return (
     <PageShell>
-        <header className="mb-8">
-          <Link
-            href="/"
-            prefetch
-            replace
-            className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
-          >
-            ← 主頁
-          </Link>
+        <PageHeader>
           <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">inbox</p>
           <h1 className="display-roman text-[32px] leading-none">通知</h1>
-        </header>
+        </PageHeader>
 
         {items.length === 0 ? (
           <EmptyState />

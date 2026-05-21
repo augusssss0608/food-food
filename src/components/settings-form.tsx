@@ -1,10 +1,10 @@
 'use client';
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import { Button } from '@/components/ui/button';
 import { NumberInput, isEmptyNum } from '@/components/ui/number-input';
 import { PageShell } from '@/components/ui/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { useToast } from '@/components/ui/toast';
 
 type NumKey =
@@ -81,18 +81,10 @@ export function SettingsForm({ initial }: { initial: SettingsInitial }) {
 
   return (
     <PageShell>
-      <header className="mb-8">
-        <Link
-          href="/"
-          prefetch
-          replace
-          className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
-        >
-          ← 主頁
-        </Link>
+      <PageHeader>
         <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">targets</p>
         <h1 className="display-roman text-[32px] leading-none">修改目標</h1>
-      </header>
+      </PageHeader>
 
       <Section title="能量">
         {energy.map((f) => (

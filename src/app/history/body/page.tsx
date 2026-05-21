@@ -1,11 +1,12 @@
 import { redirect } from 'next/navigation';
 import { DateTime } from 'luxon';
-import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { todayUtcRange } from '@/lib/timezone';
 import { PageShell } from '@/components/ui/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { Card } from '@/components/ui/card';
 import { LineChart } from '@/components/line-chart';
+import { BodyUpload } from '@/components/body-upload';
 
 type BodyRow = {
   measured_at: string;
@@ -64,24 +65,19 @@ export default async function HistoryBodyPage() {
 
   return (
     <PageShell>
-      <header className="mb-8">
-        <Link
-          href="/"
-          prefetch
-          replace
-          className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
-        >
-          ← 主頁
-        </Link>
+      <PageHeader>
         <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">history · body</p>
         <h1 className="display-roman text-[32px] leading-none">身體數據</h1>
-        <p className="text-text-3 text-[13px] mt-2">近 90 天趨勢，只看不改 · 共 {rows.length} 筆</p>
-      </header>
+        <p className="text-text-3 text-[13px] mt-2">近 90 天趨勢 · 共 {rows.length} 筆</p>
+      </PageHeader>
+
+      {/* 上傳新體重 / 體脂截圖（從主頁搬過來） */}
+      <BodyUpload />
 
       {rows.length === 0 ? (
         <Card className="p-6 text-center">
           <p className="text-text-3 text-[13px]">沒有紀錄</p>
-          <p className="text-text-4 text-[11px] mt-1">在主頁上傳體重秤截圖開始</p>
+          <p className="text-text-4 text-[11px] mt-1">上方上傳體重秤截圖開始</p>
         </Card>
       ) : (
         <div className="space-y-4">

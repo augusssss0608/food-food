@@ -1,10 +1,11 @@
 import { redirect } from 'next/navigation';
 import { DateTime } from 'luxon';
-import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { todayUtcRange } from '@/lib/timezone';
 import { PageShell } from '@/components/ui/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { Card } from '@/components/ui/card';
+import { HistoryDateNav } from '@/components/history-date-nav';
 
 type Meal = {
   id: string;
@@ -49,14 +50,20 @@ export default async function HistoryMealsPage({
   const tz = (profile?.preferred_timezone ?? null) as string | null;
   const { timezone, localDate: todayLocalDate } = todayUtcRange(tz);
 
-  // 解析 date 查詢參數，無效 / 缺失 → 預設今天
-  const requestedDate = params.date && DATE_RE.test(params.date) ? params.date : todayLocalDate;
-  // 邊界檢查：用 luxon parse；invalid → fallback
-  const dateDT = DateTime.fromISO(requestedDate, { zone: timezone });
-  const date = dateDT.isValid ? requestedDate : todayLocalDate;
+  // 解析 date 查詢參數
+  let date = params.date && DATE_RE.test(params.date) ? params.date : todayLocalDate;
+  let dateDT = DateTime.fromISO(date, { zone: timezone });
+  if (!dateDT.isValid) {
+    date = todayLocalDate;
+    dateDT = DateTime.fromISO(date, { zone: timezone });
+  }
+  // 不允許選未來：超過今天的 date 強制 clamp 回今天
+  if (date > todayLocalDate) {
+    date = todayLocalDate;
+    dateDT = DateTime.fromISO(date, { zone: timezone });
+  }
 
-  // 該日 [00:00, 24:00) 的 UTC 範圍（按 user timezone）
-  const dayStart = DateTime.fromISO(date, { zone: timezone }).startOf('day');
+  const dayStart = dateDT.startOf('day');
   const startUtc = dayStart.toUTC().toISO()!;
   const endExclusiveUtc = dayStart.plus({ days: 1 }).toUTC().toISO()!;
 
@@ -83,62 +90,29 @@ export default async function HistoryMealsPage({
   const advice = (adviceRes.data ?? null) as DailyAdvice | null;
   const totalKcal = Math.round(meals.reduce((s, m) => s + (m.kcal ?? 0), 0));
 
-  // prev / next 日期（不限制範圍，server fetch 空也照顯）
   const prevDate = dateDT.minus({ days: 1 }).toISODate()!;
   const nextDate = dateDT.plus({ days: 1 }).toISODate()!;
   const isToday = date === todayLocalDate;
-
-  // 中文日期顯示：「5 月 21 日 星期四」
   const dateLabel = dateDT.setLocale('zh-TW').toLocaleString({
     month: 'long', day: 'numeric', weekday: 'long',
   });
 
   return (
     <PageShell>
-      <header className="mb-6">
-        <Link
-          href="/"
-          prefetch
-          replace
-          className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
-        >
-          ← 主頁
-        </Link>
+      <PageHeader>
         <p className="text-[11px] uppercase tracking-[0.24em] text-text-3 font-mono mb-1">history · meals</p>
         <h1 className="display-roman text-[32px] leading-none">飲食歷史</h1>
-      </header>
+      </PageHeader>
 
-      {/* 日期切換條 */}
-      <div className="flex items-center justify-between bg-surface border border-hairline rounded-xl px-3 py-3 mb-6">
-        <Link
-          href={`/history/meals?date=${prevDate}`}
-          prefetch={false}
-          replace
-          aria-label="前一天"
-          className="p-2 -ml-1 text-text-2 hover:text-text rounded-md transition-colors"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </Link>
-        <div className="text-center">
-          <p className="text-[14px] text-text font-medium">{dateLabel}</p>
-          <p className="text-[10px] text-text-4 font-mono tabular mt-0.5">{date}{isToday && ' · 今天'}</p>
-        </div>
-        <Link
-          href={`/history/meals?date=${nextDate}`}
-          prefetch={false}
-          replace
-          aria-label="後一天"
-          className="p-2 -mr-1 text-text-2 hover:text-text rounded-md transition-colors"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </Link>
-      </div>
+      <HistoryDateNav
+        date={date}
+        dateLabel={dateLabel}
+        todayDate={todayLocalDate}
+        prevDate={prevDate}
+        nextDate={nextDate}
+        isToday={isToday}
+      />
 
-      {/* 當日 meals 列表 */}
       <section className="mb-7">
         <div className="flex items-baseline justify-between mb-2">
           <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono">當日紀錄</p>
@@ -177,7 +151,6 @@ export default async function HistoryMealsPage({
         )}
       </section>
 
-      {/* 當日 AI 建議 */}
       <section>
         <div className="flex items-baseline justify-between mb-2">
           <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono">AI 今日總評</p>

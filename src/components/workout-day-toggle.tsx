@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { Spinner } from '@/components/ui/spinner';
@@ -7,23 +7,35 @@ import { Spinner } from '@/components/ui/spinner';
 /**
  * 主頁今日狀態：訓練日 / 休息日 切換。
  * 點任一鈕 → POST /api/workout-day upsert → router.refresh 拉新目標。
- * 未標記時兩鈕都不亮，下面顯示提示文案。
+ * 用戶要求：標記後整個 toggle 行消失（切換改由 TodaySummary 右上標籤按鈕觸發）。
+ *
+ * 樂觀 UI（codex round A 反饋）：POST 一發出就把本地 marked 設 true，toggle 立即消失，
+ * 不必等 server refresh 回來。失敗時回滾本地狀態。
  */
 export function WorkoutDayToggle({
   date,
   workoutMarked,
-  isWorkoutDay,
 }: {
   date: string;
   workoutMarked: boolean;
-  isWorkoutDay: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
+  const [, startTransition] = useTransition();
   const [busy, setBusy] = useState<'workout' | 'rest' | null>(null);
+  const [optimisticMarked, setOptimisticMarked] = useState(workoutMarked);
+
+  // server prop 變更（refresh 回來）時同步本地
+  useEffect(() => {
+    setOptimisticMarked(workoutMarked);
+  }, [workoutMarked]);
+
+  // 已標記（或樂觀標記）→ 隱藏整個 toggle 行
+  if (optimisticMarked) return null;
 
   async function setWorkout(is_workout: boolean) {
     setBusy(is_workout ? 'workout' : 'rest');
+    setOptimisticMarked(true); // 樂觀隱藏 toggle，不等 server
     try {
       const r = await fetch('/api/workout-day', {
         method: 'POST',
@@ -34,16 +46,14 @@ export function WorkoutDayToggle({
         const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch (e: unknown) {
+      setOptimisticMarked(false); // 失敗 → 回滾，讓 toggle 重新顯示
       toast.error('設定失敗', (e as Error).message);
     } finally {
       setBusy(null);
     }
   }
-
-  const workoutSelected = workoutMarked && isWorkoutDay;
-  const restSelected = workoutMarked && !isWorkoutDay;
 
   return (
     <section className="mb-6">
@@ -53,13 +63,7 @@ export function WorkoutDayToggle({
           type="button"
           onClick={() => setWorkout(true)}
           disabled={busy != null}
-          className={[
-            'relative flex-1 h-10 rounded-lg text-[14px] font-medium transition-colors',
-            'disabled:opacity-60',
-            workoutSelected
-              ? 'bg-accent text-accent-ink'
-              : 'bg-surface border border-hairline text-text-2 hover:border-hairline-strong',
-          ].join(' ')}
+          className="relative flex-1 h-10 rounded-lg text-[14px] font-medium transition-colors disabled:opacity-60 bg-surface border border-hairline text-text-2 hover:border-hairline-strong"
         >
           {busy === 'workout' ? (
             <span className="inline-flex items-center gap-2"><Spinner size={12} /> 訓練日</span>
@@ -69,22 +73,14 @@ export function WorkoutDayToggle({
           type="button"
           onClick={() => setWorkout(false)}
           disabled={busy != null}
-          className={[
-            'relative flex-1 h-10 rounded-lg text-[14px] font-medium transition-colors',
-            'disabled:opacity-60',
-            restSelected
-              ? 'bg-text-2 text-ink'
-              : 'bg-surface border border-hairline text-text-2 hover:border-hairline-strong',
-          ].join(' ')}
+          className="relative flex-1 h-10 rounded-lg text-[14px] font-medium transition-colors disabled:opacity-60 bg-surface border border-hairline text-text-2 hover:border-hairline-strong"
         >
           {busy === 'rest' ? (
             <span className="inline-flex items-center gap-2"><Spinner size={12} /> 休息日</span>
           ) : '休息日'}
         </button>
       </div>
-      {!workoutMarked && (
-        <p className="text-[11px] text-text-4 font-mono mt-2">未選擇，今日目標顯示 0</p>
-      )}
+      <p className="text-[11px] text-text-4 font-mono mt-2">未選擇，今日目標顯示 0</p>
     </section>
   );
 }

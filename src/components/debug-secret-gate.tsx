@@ -1,9 +1,9 @@
 'use client';
 import { useState } from 'react';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PageShell } from '@/components/ui/page-shell';
+import { PageHeader } from '@/components/page-header';
 import { useToast } from '@/components/ui/toast';
 
 export function DebugSecretGate() {
@@ -29,14 +29,7 @@ export function DebugSecretGate() {
 
   return (
     <PageShell px="px-6">
-        <Link
-          href="/"
-          prefetch
-          replace
-          className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
-        >
-          ← 主頁
-        </Link>
+        <PageHeader />
         <header className="mb-10 text-center">
           <p className="text-[11px] uppercase tracking-[0.32em] text-warm font-mono mb-3">restricted</p>
           <h1 className="display-roman text-[36px] leading-tight">維護面板</h1>

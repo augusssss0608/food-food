@@ -1,9 +1,9 @@
-import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { cookies } from 'next/headers';
 import { DebugSecretGate } from '@/components/debug-secret-gate';
 import { Card } from '@/components/ui/card';
 import { PageShell } from '@/components/ui/page-shell';
+import { PageHeader } from '@/components/page-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,18 +38,10 @@ export default async function AdminDebugPage() {
 
   return (
     <PageShell wide>
-      <header className="mb-10">
-        <Link
-          href="/"
-          prefetch
-          replace
-          className="inline-flex items-center text-[13px] text-text-3 hover:text-text transition-colors mb-4 -ml-1"
-        >
-          ← 主頁
-        </Link>
+      <PageHeader>
         <p className="text-[11px] uppercase tracking-[0.24em] text-warm font-mono mb-1">restricted · admin</p>
         <h1 className="display-roman text-[32px] leading-none">debug</h1>
-      </header>
+      </PageHeader>
 
       {/* Summary stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-10">
