@@ -2,24 +2,41 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
 import { MockHome, MockSheet, PlusButton, MockToast, useMockTodayLog, useMockPresets } from '../_lib/mock-home';
-import { PresetManagerSheet } from '../_lib/preset-manager';
+import { MockPresetForm, InlineConfirmDialog } from '../_lib/preset-manager';
 import { MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
 
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+type FormState = 'closed' | 'add' | { kind: 'edit'; id: string };
 
 export default function SpotlightPage() {
   const { log, addEntry } = useMockTodayLog();
   const { presets, addPreset, updatePreset, deletePreset } = useMockPresets();
   const [open, setOpen] = useState(false);
-  const [manageOpen, setManageOpen] = useState(false);
   const [q, setQ] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const [section, setSection] = useState<'main' | 'photo' | 'recent'>('main');
+  const [editMode, setEditMode] = useState(false);
+  const [formState, setFormState] = useState<FormState>('closed');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+
+  function startLongPress() {
+    if (longPressTimerRef.current != null) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = window.setTimeout(() => {
+      setEditMode(true);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+    }, 450);
+  }
+  function cancelLongPress() {
+    if (longPressTimerRef.current != null) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+  }
+  const editingPreset = typeof formState === 'object' && formState.kind === 'edit'
+    ? presets.find((p) => p.id === formState.id) : undefined;
 
   useEffect(() => {
-    // 不 autoFocus，避免 iPhone Safari 立即彈鍵盤遮擋下方入口；用戶點輸入框才彈
-    if (!open) { setQ(''); setSection('main'); }
+    if (!open) { setQ(''); setSection('main'); setEditMode(false); setFormState('closed'); }
   }, [open]);
 
   const trimmed = q.trim();
@@ -48,7 +65,21 @@ export default function SpotlightPage() {
       <MockHome log={log} rightAction={<PlusButton onClick={() => setOpen(true)} />} />
 
       <MockSheet open={open} onClose={() => setOpen(false)} title="新增餐" minHeight="80vh">
-        {section === 'photo' ? (
+        {formState !== 'closed' ? (
+          <div className="px-4 pt-4 pb-5">
+            <h2 className="text-[16px] text-text font-medium mb-4">{formState === 'add' ? '新增菜單' : '編輯菜單'}</h2>
+            <MockPresetForm
+              initial={editingPreset ? { name: editingPreset.name, kcal: editingPreset.kcal } : undefined}
+              submitLabel={formState === 'add' ? '新增' : '保存'}
+              onSubmit={(name, kcal) => {
+                if (formState === 'add') addPreset(name, kcal);
+                else if (typeof formState === 'object') updatePreset(formState.id, name, kcal);
+                setFormState('closed');
+              }}
+              onCancel={() => setFormState('closed')}
+            />
+          </div>
+        ) : section === 'photo' ? (
           <PhotoSection onBack={() => setSection('main')} onPicked={record} />
         ) : section === 'recent' ? (
           <RecentSection onBack={() => setSection('main')} onPicked={record} />
@@ -87,65 +118,92 @@ export default function SpotlightPage() {
                 </button>
               ) : (
                 <>
-                  <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono mb-2">
-                    {trimmed ? `匹配 ${filtered.length} 個` : `建議 · 全部 ${presets.length} 個`}
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono">
+                      {trimmed ? `匹配 ${filtered.length} 個` : `建議 · 全部 ${presets.length} 個`}
+                    </p>
+                    {editMode ? (
+                      <button onClick={() => setEditMode(false)} className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95">完成</button>
+                    ) : (
+                      <button
+                        onClick={() => setFormState('add')}
+                        aria-label="新增菜單"
+                        className="w-6 h-6 flex items-center justify-center rounded-full bg-surface border border-hairline text-text-2 hover:border-accent/60 hover:text-accent active:scale-95 transition-all"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                      </button>
+                    )}
+                  </div>
+                  {!editMode && !trimmed && presets.length > 0 && (
+                    <p className="text-[9px] text-text-4 font-mono mb-2">長按列表項進入編輯模式</p>
+                  )}
                   <ul className="space-y-1.5">
-                    {filtered.map((p) => (
-                      <li key={p.id}>
-                        <button
-                          type="button"
-                          onClick={() => record(p.name, p.kcal)}
-                          className="w-full bg-surface border border-hairline rounded-lg px-3.5 py-2.5 flex items-center justify-between gap-3 hover:border-hairline-strong active:scale-[0.99] transition-all"
-                        >
-                          <span className="text-[13px] text-text font-medium truncate">
-                            {trimmed ? highlight(p.name, trimmed) : p.name}
-                          </span>
-                          <span className="text-[12px] font-mono text-accent tabular flex-shrink-0">
-                            {p.kcal}<span className="text-[9px] text-text-3 ml-0.5">kcal</span>
-                          </span>
-                        </button>
-                      </li>
-                    ))}
+                    {filtered.map((p, i) => {
+                      const wiggle = editMode ? (i % 2 === 0 ? 'ff-wiggle-a 0.32s ease-in-out infinite' : 'ff-wiggle-b 0.32s ease-in-out infinite') : undefined;
+                      return (
+                        <li key={p.id} className="relative" style={{ animation: wiggle }}>
+                          <button
+                            type="button"
+                            onClick={() => editMode ? setFormState({ kind: 'edit', id: p.id }) : record(p.name, p.kcal)}
+                            onPointerDown={() => !editMode && startLongPress()}
+                            onPointerUp={cancelLongPress}
+                            onPointerCancel={cancelLongPress}
+                            onPointerLeave={cancelLongPress}
+                            onContextMenu={(e) => e.preventDefault()}
+                            className="w-full bg-surface border border-hairline rounded-lg px-3.5 py-2.5 flex items-center justify-between gap-3 hover:border-hairline-strong active:scale-[0.99] transition-all"
+                          >
+                            <span className="text-[13px] text-text font-medium truncate">
+                              {trimmed ? highlight(p.name, trimmed) : p.name}
+                            </span>
+                            <span className="text-[12px] font-mono text-accent tabular flex-shrink-0">
+                              {Math.round(p.kcal)}<span className="text-[9px] text-text-3 ml-0.5">kcal</span>
+                            </span>
+                          </button>
+                          {editMode && (
+                            <button
+                              onClick={() => setDeleteId(p.id)}
+                              aria-label={`刪除 ${p.name}`}
+                              className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-danger text-white flex items-center justify-center shadow-md active:scale-90 transition-transform"
+                            >
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </>
               )}
             </div>
 
-            <div className="flex-shrink-0 px-4 pt-2 pb-3 border-t border-hairline grid grid-cols-3 gap-2">
+            <div className="flex-shrink-0 px-4 pt-2 pb-3 border-t border-hairline flex gap-2">
               <button
                 onClick={() => setSection('photo')}
-                className="bg-surface border border-hairline rounded-lg px-2 py-2.5 text-[12px] text-text-2 hover:border-hairline-strong active:scale-[0.99] transition-all flex items-center justify-center gap-1"
+                className="flex-1 bg-surface border border-hairline rounded-lg px-3 py-2.5 text-[12px] text-text-2 hover:border-hairline-strong active:scale-[0.99] transition-all flex items-center justify-center gap-1.5"
               >
                 <span>📷</span>
                 <span>拍餐</span>
               </button>
               <button
                 onClick={() => setSection('recent')}
-                className="bg-surface border border-hairline rounded-lg px-2 py-2.5 text-[12px] text-text-2 hover:border-hairline-strong active:scale-[0.99] transition-all flex items-center justify-center gap-1"
+                className="flex-1 bg-surface border border-hairline rounded-lg px-3 py-2.5 text-[12px] text-text-2 hover:border-hairline-strong active:scale-[0.99] transition-all flex items-center justify-center gap-1.5"
               >
                 <span>🕐</span>
-                <span>近期</span>
-              </button>
-              <button
-                onClick={() => { setOpen(false); setManageOpen(true); }}
-                className="bg-surface border border-hairline rounded-lg px-2 py-2.5 text-[12px] text-text-2 hover:border-hairline-strong active:scale-[0.99] transition-all flex items-center justify-center gap-1"
-              >
-                <span>⚙</span>
-                <span>管理</span>
+                <span>近期 ({MOCK_RECENT_PHOTO.length})</span>
               </button>
             </div>
           </div>
         )}
       </MockSheet>
 
-      <PresetManagerSheet
-        open={manageOpen}
-        onClose={() => setManageOpen(false)}
-        presets={presets}
-        onAdd={addPreset}
-        onUpdate={updatePreset}
-        onDelete={deletePreset}
+      <InlineConfirmDialog
+        open={deleteId != null}
+        title="刪除這個菜單？"
+        body={deleteId ? <span>將永久移除「<span className="text-text font-medium">{presets.find((p) => p.id === deleteId)?.name}</span>」。</span> : null}
+        confirmText="刪除"
+        variant="danger"
+        onCancel={() => setDeleteId(null)}
+        onConfirm={() => { if (deleteId) deletePreset(deleteId); setDeleteId(null); }}
       />
 
       <MockToast text={toast} />

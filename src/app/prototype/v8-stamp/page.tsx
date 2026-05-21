@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
 import { MockToast, useMockTodayLog, useMockPresets } from '../_lib/mock-home';
-import { PresetManagerSheet } from '../_lib/preset-manager';
+import { MockPresetForm, InlineConfirmDialog } from '../_lib/preset-manager';
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -22,10 +22,14 @@ type DragState = {
 const LONG_PRESS_MS = 350;
 const MOVE_CANCEL_PX = 10;
 
+type FormState = 'closed' | 'add' | { kind: 'edit'; id: string };
+
 export default function StampPage() {
   const { log, addEntry } = useMockTodayLog();
   const { presets, addPreset, updatePreset, deletePreset } = useMockPresets();
-  const [manageOpen, setManageOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [formState, setFormState] = useState<FormState>('closed');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [armingId, setArmingId] = useState<string | null>(null);
   const [hoverDrop, setHoverDrop] = useState(false);
@@ -33,6 +37,9 @@ export default function StampPage() {
   const dropRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
+
+  const editingPreset = typeof formState === 'object' && formState.kind === 'edit'
+    ? presets.find((p) => p.id === formState.id) : undefined;
 
   function record(name: string, kcal: number) {
     addEntry(name, kcal);
@@ -140,40 +147,76 @@ export default function StampPage() {
               <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono">
                 印章盤 · {presets.length} 個
               </p>
-              <button
-                onClick={() => setManageOpen(true)}
-                className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95"
-              >
-                ⚙ 管理
-              </button>
+              <div className="flex gap-2 items-center">
+                {editMode ? (
+                  <button onClick={() => setEditMode(false)} className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95">完成</button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setEditMode(true)}
+                      className="text-[11px] text-text-2 font-mono uppercase tracking-wider hover:text-accent active:scale-95"
+                    >
+                      ✏️ 編輯
+                    </button>
+                    <button
+                      onClick={() => setFormState('add')}
+                      aria-label="新增印章"
+                      className="w-7 h-7 flex items-center justify-center rounded-full bg-surface border border-hairline text-text-2 hover:border-accent/60 hover:text-accent active:scale-95 transition-all"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             <p className="text-[10px] text-text-4 font-mono mb-3">
-              ⓘ 長按 0.35 秒進入拖曳模式 · 短按可滾動列表
+              {editMode ? '✏️ 編輯模式：點印章編輯、點紅叉刪除' : 'ⓘ 長按印章 0.35 秒進入拖曳模式'}
             </p>
             <div className="grid grid-cols-3 gap-3">
-              {presets.map((p) => (
-                <div
-                  key={p.id}
-                  onPointerDown={(e) => onPointerDown(e, p.id)}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={onPointerUp}
-                  onPointerCancel={onPointerUp}
-                  className="select-none"
-                  style={{ touchAction: drag?.presetId === p.id ? 'none' : 'pan-y' }}
-                >
+              {presets.map((p, i) => {
+                const wiggle = editMode ? (i % 2 === 0 ? 'ff-wiggle-a 0.32s ease-in-out infinite' : 'ff-wiggle-b 0.32s ease-in-out infinite') : undefined;
+                return (
                   <div
-                    className={[
-                      'aspect-square rounded-full border-2 border-accent/40 bg-accent/5 flex flex-col items-center justify-center p-2 transition-all',
-                      armingId === p.id ? 'scale-110 border-accent shadow-lg shadow-accent/40' : '',
-                      drag && drag.presetId === p.id ? 'opacity-20' : '',
-                      drag && drag.presetId !== p.id ? 'opacity-30' : '',
-                    ].join(' ')}
+                    key={p.id}
+                    className="relative"
+                    style={{ animation: wiggle }}
                   >
-                    <p className="text-[11px] text-text font-medium text-center leading-tight line-clamp-2">{p.name}</p>
-                    <p className="text-[12px] font-mono text-accent tabular mt-1">{p.kcal}</p>
+                    <div
+                      onClick={editMode ? () => setFormState({ kind: 'edit', id: p.id }) : undefined}
+                      onPointerDown={editMode ? undefined : (e) => onPointerDown(e, p.id)}
+                      onPointerMove={editMode ? undefined : onPointerMove}
+                      onPointerUp={editMode ? undefined : onPointerUp}
+                      onPointerCancel={editMode ? undefined : onPointerUp}
+                      className={[
+                        'select-none',
+                        editMode ? 'cursor-pointer active:scale-95 transition-transform' : '',
+                      ].join(' ')}
+                      style={{ touchAction: editMode ? 'auto' : (drag?.presetId === p.id ? 'none' : 'pan-y') }}
+                    >
+                      <div
+                        className={[
+                          'aspect-square rounded-full border-2 border-accent/40 bg-accent/5 flex flex-col items-center justify-center p-2 transition-all',
+                          armingId === p.id ? 'scale-110 border-accent shadow-lg shadow-accent/40' : '',
+                          drag && drag.presetId === p.id ? 'opacity-20' : '',
+                          drag && drag.presetId !== p.id ? 'opacity-30' : '',
+                        ].join(' ')}
+                      >
+                        <p className="text-[11px] text-text font-medium text-center leading-tight line-clamp-2">{p.name}</p>
+                        <p className="text-[12px] font-mono text-accent tabular mt-1">{p.kcal}</p>
+                      </div>
+                    </div>
+                    {editMode && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteId(p.id); }}
+                        aria-label={`刪除 ${p.name}`}
+                        className="absolute -top-1 -left-1 w-6 h-6 rounded-full bg-danger text-white flex items-center justify-center shadow-md active:scale-90 transition-transform z-10"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                      </button>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -188,13 +231,33 @@ export default function StampPage() {
           </div>
         )}
       </div>
-      <PresetManagerSheet
-        open={manageOpen}
-        onClose={() => setManageOpen(false)}
-        presets={presets}
-        onAdd={addPreset}
-        onUpdate={updatePreset}
-        onDelete={deletePreset}
+      {/* 表單 overlay */}
+      {formState !== 'closed' && (
+        <div className="fixed inset-0 z-[110] bg-ink/95 backdrop-blur-md flex flex-col" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 48px)' }}>
+          <div className="px-5 py-5 max-w-md mx-auto w-full">
+            <h2 className="text-[16px] text-text font-medium mb-4">{formState === 'add' ? '新增印章' : '編輯印章'}</h2>
+            <MockPresetForm
+              initial={editingPreset ? { name: editingPreset.name, kcal: editingPreset.kcal } : undefined}
+              submitLabel={formState === 'add' ? '新增' : '保存'}
+              onSubmit={(name, kcal) => {
+                if (formState === 'add') addPreset(name, kcal);
+                else if (typeof formState === 'object') updatePreset(formState.id, name, kcal);
+                setFormState('closed');
+              }}
+              onCancel={() => setFormState('closed')}
+            />
+          </div>
+        </div>
+      )}
+
+      <InlineConfirmDialog
+        open={deleteId != null}
+        title="刪除這個印章？"
+        body={deleteId ? <span>將永久移除「<span className="text-text font-medium">{presets.find((p) => p.id === deleteId)?.name}</span>」。</span> : null}
+        confirmText="刪除"
+        variant="danger"
+        onCancel={() => setDeleteId(null)}
+        onConfirm={() => { if (deleteId) deletePreset(deleteId); setDeleteId(null); }}
       />
 
       <MockToast text={toast} />

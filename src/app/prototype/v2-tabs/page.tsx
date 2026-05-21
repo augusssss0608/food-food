@@ -2,7 +2,7 @@
 import { useRef, useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
 import { MockHome, MockSheet, PlusButton, MockToast, useMockTodayLog, useMockPresets } from '../_lib/mock-home';
-import { PresetManagerSheet } from '../_lib/preset-manager';
+import { MockPresetForm, InlineConfirmDialog } from '../_lib/preset-manager';
 import { MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
 
 type Tab = 'custom' | 'recent' | 'photo';
@@ -12,14 +12,32 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'photo', label: '拍照', icon: '📷' },
 ];
 
+type FormState = 'closed' | 'add' | { kind: 'edit'; id: string };
+
 export default function TabsPage() {
   const { log, addEntry } = useMockTodayLog();
   const { presets, addPreset, updatePreset, deletePreset } = useMockPresets();
   const [open, setOpen] = useState(false);
-  const [manageOpen, setManageOpen] = useState(false);
   const [tab, setTab] = useState<Tab>('custom');
   const [toast, setToast] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [formState, setFormState] = useState<FormState>('closed');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const startX = useRef<number | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+
+  function startLongPress() {
+    if (longPressTimerRef.current != null) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = window.setTimeout(() => {
+      setEditMode(true);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+    }, 450);
+  }
+  function cancelLongPress() {
+    if (longPressTimerRef.current != null) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+  }
+  const editingPreset = typeof formState === 'object' && formState.kind === 'edit'
+    ? presets.find((p) => p.id === formState.id) : undefined;
 
   function record(name: string, kcal: number) {
     addEntry(name, kcal);
@@ -61,32 +79,71 @@ export default function TabsPage() {
                 <div key={t.key} className="overflow-y-auto" style={{ width: `${100 / TABS.length}%` }}>
                   <div className="px-4 py-4">
                     {t.key === 'custom' && (
-                      <>
-                        <div className="flex items-center justify-between mb-2.5">
-                          <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono">{presets.length} 個菜單</p>
-                          <button
-                            onClick={() => setManageOpen(true)}
-                            className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95 flex items-center gap-1"
-                          >
-                            ⚙ 管理
-                          </button>
+                      formState !== 'closed' ? (
+                        <div>
+                          <h3 className="text-[14px] text-text font-medium mb-3">{formState === 'add' ? '新增菜單' : '編輯菜單'}</h3>
+                          <MockPresetForm
+                            initial={editingPreset ? { name: editingPreset.name, kcal: editingPreset.kcal } : undefined}
+                            submitLabel={formState === 'add' ? '新增' : '保存'}
+                            onSubmit={(name, kcal) => {
+                              if (formState === 'add') addPreset(name, kcal);
+                              else if (typeof formState === 'object') updatePreset(formState.id, name, kcal);
+                              setFormState('closed');
+                            }}
+                            onCancel={() => setFormState('closed')}
+                          />
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          {presets.map((p) => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => record(p.name, p.kcal)}
-                              className="bg-surface border border-hairline rounded-xl p-3.5 text-left hover:border-hairline-strong active:scale-[0.98] transition-all"
-                            >
-                              <p className="text-[13px] text-text font-medium leading-tight truncate">{p.name}</p>
-                              <p className="text-[17px] font-mono text-accent tabular mt-1.5 leading-none">
-                                {Math.round(p.kcal)}<span className="text-[9px] text-text-3 ml-1">kcal</span>
-                              </p>
-                            </button>
-                          ))}
-                        </div>
-                      </>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between mb-2.5">
+                            <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono">{presets.length} 個菜單</p>
+                            {editMode ? (
+                              <button onClick={() => setEditMode(false)} className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95">完成</button>
+                            ) : (
+                              <button
+                                onClick={() => setFormState('add')}
+                                aria-label="新增菜單"
+                                className="w-6 h-6 flex items-center justify-center rounded-full bg-surface border border-hairline text-text-2 hover:border-accent/60 hover:text-accent active:scale-95 transition-all"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {presets.map((p, i) => {
+                              const wiggle = editMode ? (i % 2 === 0 ? 'ff-wiggle-a 0.32s ease-in-out infinite' : 'ff-wiggle-b 0.32s ease-in-out infinite') : undefined;
+                              return (
+                                <div key={p.id} className="relative" style={{ animation: wiggle }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => editMode ? setFormState({ kind: 'edit', id: p.id }) : record(p.name, p.kcal)}
+                                    onPointerDown={() => !editMode && startLongPress()}
+                                    onPointerUp={cancelLongPress}
+                                    onPointerCancel={cancelLongPress}
+                                    onPointerLeave={cancelLongPress}
+                                    onContextMenu={(e) => e.preventDefault()}
+                                    className="w-full bg-surface border border-hairline rounded-xl p-3.5 text-left hover:border-hairline-strong active:scale-[0.98] transition-all"
+                                  >
+                                    <p className="text-[13px] text-text font-medium leading-tight truncate">{p.name}</p>
+                                    <p className="text-[17px] font-mono text-accent tabular mt-1.5 leading-none">
+                                      {Math.round(p.kcal)}<span className="text-[9px] text-text-3 ml-1">kcal</span>
+                                    </p>
+                                  </button>
+                                  {editMode && (
+                                    <button
+                                      onClick={() => setDeleteId(p.id)}
+                                      aria-label={`刪除 ${p.name}`}
+                                      className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-danger text-white flex items-center justify-center shadow-md active:scale-90 transition-transform"
+                                    >
+                                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )
                     )}
 
                     {t.key === 'recent' && (
@@ -154,13 +211,14 @@ export default function TabsPage() {
         </div>
       </MockSheet>
 
-      <PresetManagerSheet
-        open={manageOpen}
-        onClose={() => setManageOpen(false)}
-        presets={presets}
-        onAdd={addPreset}
-        onUpdate={updatePreset}
-        onDelete={deletePreset}
+      <InlineConfirmDialog
+        open={deleteId != null}
+        title="刪除這個菜單？"
+        body={deleteId ? <span>將永久移除「<span className="text-text font-medium">{presets.find((p) => p.id === deleteId)?.name}</span>」。</span> : null}
+        confirmText="刪除"
+        variant="danger"
+        onCancel={() => setDeleteId(null)}
+        onConfirm={() => { if (deleteId) deletePreset(deleteId); setDeleteId(null); }}
       />
 
       <MockToast text={toast} />

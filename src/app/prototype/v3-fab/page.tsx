@@ -2,17 +2,23 @@
 import { useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
 import { MockHome, MockToast, useMockTodayLog, useMockPresets } from '../_lib/mock-home';
-import { PresetManagerSheet } from '../_lib/preset-manager';
+import { MockPresetForm, InlineConfirmDialog } from '../_lib/preset-manager';
 import { MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
+import { useRef } from 'react';
 
 type Mode = 'home' | 'open' | 'custom' | 'photo' | 'recent';
+
+type FormState = 'closed' | 'add' | { kind: 'edit'; id: string };
 
 export default function FabPage() {
   const { log, addEntry } = useMockTodayLog();
   const { presets, addPreset, updatePreset, deletePreset } = useMockPresets();
   const [mode, setMode] = useState<Mode>('home');
-  const [manageOpen, setManageOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [formState, setFormState] = useState<FormState>('closed');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
 
   function record(name: string, kcal: number) {
     addEntry(name, kcal);
@@ -20,6 +26,23 @@ export default function FabPage() {
     setTimeout(() => setToast(null), 1800);
     setMode('home');
   }
+
+  function startLongPress() {
+    if (longPressTimerRef.current != null) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = window.setTimeout(() => {
+      setEditMode(true);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+    }, 450);
+  }
+  function cancelLongPress() {
+    if (longPressTimerRef.current != null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  const editingPreset = typeof formState === 'object' && formState.kind === 'edit'
+    ? presets.find((p) => p.id === formState.id) : undefined;
 
   return (
     <PrototypeShell title="3. FAB Quick Actions">
@@ -59,28 +82,74 @@ export default function FabPage() {
 
         {/* Sub pages — 模擬 push 一層，但用半屏 modal 從右滑入 */}
         {mode === 'custom' && (
-          <SubPage title="自定義菜單" onBack={() => setMode('home')}>
-            <div className="flex items-center justify-between px-5 pt-3 pb-2">
-              <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono">{presets.length} 個菜單</p>
-              <button
-                onClick={() => { setMode('home'); setManageOpen(true); }}
-                className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95"
-              >
-                ⚙ 管理
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-2.5 px-5 pb-5">
-              {presets.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => record(p.name, p.kcal)}
-                  className="bg-surface border border-hairline rounded-xl p-4 text-left hover:border-hairline-strong active:scale-[0.98] transition-all"
-                >
-                  <p className="text-[14px] text-text font-medium truncate">{p.name}</p>
-                  <p className="text-[18px] font-mono text-accent tabular mt-2">{Math.round(p.kcal)}<span className="text-[10px] text-text-3 ml-1">kcal</span></p>
-                </button>
-              ))}
-            </div>
+          <SubPage title="自定義菜單" onBack={() => { setMode('home'); setEditMode(false); }}>
+            {formState !== 'closed' ? (
+              <div className="px-5 pt-4 pb-5">
+                <h2 className="text-[16px] text-text font-medium mb-4">
+                  {formState === 'add' ? '新增菜單' : '編輯菜單'}
+                </h2>
+                <MockPresetForm
+                  initial={editingPreset ? { name: editingPreset.name, kcal: editingPreset.kcal } : undefined}
+                  submitLabel={formState === 'add' ? '新增' : '保存'}
+                  onSubmit={(name, kcal) => {
+                    if (formState === 'add') addPreset(name, kcal);
+                    else if (typeof formState === 'object') updatePreset(formState.id, name, kcal);
+                    setFormState('closed');
+                  }}
+                  onCancel={() => setFormState('closed')}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between px-5 pt-3 pb-2">
+                  <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono">{presets.length} 個菜單</p>
+                  {editMode ? (
+                    <button onClick={() => setEditMode(false)} className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95">完成</button>
+                  ) : (
+                    <button
+                      onClick={() => setFormState('add')}
+                      aria-label="新增菜單"
+                      className="w-7 h-7 flex items-center justify-center rounded-full bg-surface border border-hairline text-text-2 hover:border-accent/60 hover:text-accent active:scale-95 transition-all"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                    </button>
+                  )}
+                </div>
+                {!editMode && presets.length > 0 && (
+                  <p className="text-[10px] text-text-4 font-mono px-5 mb-2">長按任一菜單可進入編輯模式</p>
+                )}
+                <div className="grid grid-cols-2 gap-2.5 px-5 pb-5">
+                  {presets.map((p, i) => {
+                    const wiggle = editMode ? (i % 2 === 0 ? 'ff-wiggle-a 0.32s ease-in-out infinite' : 'ff-wiggle-b 0.32s ease-in-out infinite') : undefined;
+                    return (
+                      <div key={p.id} className="relative" style={{ animation: wiggle }}>
+                        <button
+                          onClick={() => editMode ? setFormState({ kind: 'edit', id: p.id }) : record(p.name, p.kcal)}
+                          onPointerDown={() => !editMode && startLongPress()}
+                          onPointerUp={cancelLongPress}
+                          onPointerCancel={cancelLongPress}
+                          onPointerLeave={cancelLongPress}
+                          onContextMenu={(e) => e.preventDefault()}
+                          className="w-full bg-surface border border-hairline rounded-xl p-4 text-left hover:border-hairline-strong active:scale-[0.98] transition-all"
+                        >
+                          <p className="text-[14px] text-text font-medium truncate">{p.name}</p>
+                          <p className="text-[18px] font-mono text-accent tabular mt-2">{Math.round(p.kcal)}<span className="text-[10px] text-text-3 ml-1">kcal</span></p>
+                        </button>
+                        {editMode && (
+                          <button
+                            onClick={() => setDeleteId(p.id)}
+                            aria-label={`刪除 ${p.name}`}
+                            className="absolute -top-2 -left-2 w-6 h-6 rounded-full bg-danger text-white flex items-center justify-center shadow-md active:scale-90 transition-transform"
+                          >
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </SubPage>
         )}
         {mode === 'photo' && (
@@ -119,13 +188,21 @@ export default function FabPage() {
 
         <MockToast text={toast} />
 
-        <PresetManagerSheet
-          open={manageOpen}
-          onClose={() => setManageOpen(false)}
-          presets={presets}
-          onAdd={addPreset}
-          onUpdate={updatePreset}
-          onDelete={deletePreset}
+        <InlineConfirmDialog
+          open={deleteId != null}
+          title="刪除這個菜單？"
+          body={
+            deleteId ? (
+              <span>將永久移除「<span className="text-text font-medium">{presets.find((p) => p.id === deleteId)?.name}</span>」。</span>
+            ) : null
+          }
+          confirmText="刪除"
+          variant="danger"
+          onCancel={() => setDeleteId(null)}
+          onConfirm={() => {
+            if (deleteId) deletePreset(deleteId);
+            setDeleteId(null);
+          }}
         />
       </div>
     </PrototypeShell>
