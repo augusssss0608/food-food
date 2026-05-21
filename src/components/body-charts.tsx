@@ -2,10 +2,13 @@
 import { DateTime } from 'luxon';
 
 /**
- * 三種體重 / 體脂類數值的可視化變體，並排放在 /history/body 給用戶比較。
+ * 三種可看到逐筆歷史數值的可視化變體（D / E / F），並排在 /history/body 給用戶比較。
+ *
+ * D = 縱向時間軸（GitHub commit 風，每筆一個 timeline node）
+ * E = 表格 + 迷你進度條（Airtable 風，數值 + 與上筆 delta + 區間位置）
+ * F = 折線圖 + 列表混合（上半趨勢線，下半可滾動列表）
  *
  * 共用輸入：series = [{ date, value }]，value 可為 null（該天沒測）。
- * 共用視覺：暗色卡片 + mono 數字 + 主色（傳入），尺寸/字級對齊現有風格。
  */
 export type Series = { date: string; value: number | null }[];
 
@@ -22,15 +25,32 @@ function fmtVal(v: number, unit: string): string {
   return v.toFixed(digits);
 }
 
-function deltaArrow(d: number): string {
-  if (Math.abs(d) < 0.05) return '·';
-  return d > 0 ? '↑' : '↓';
+function fmtDate(iso: string): string {
+  const d = DateTime.fromISO(iso);
+  if (!d.isValid) return iso.slice(0, 10);
+  return d.toFormat('M/d');
+}
+
+function fmtDateRelative(iso: string, todayISO?: string): string {
+  const d = DateTime.fromISO(iso);
+  if (!d.isValid) return iso.slice(0, 10);
+  const today = todayISO ? DateTime.fromISO(todayISO) : DateTime.now();
+  const days = Math.round(today.startOf('day').diff(d.startOf('day'), 'days').days);
+  if (days === 0) return '今天';
+  if (days === 1) return '昨天';
+  if (days < 7) return `${days} 天前`;
+  return d.toFormat('M/d');
+}
+
+function deltaSign(d: number): { arrow: string; sign: number } {
+  if (Math.abs(d) < 0.05) return { arrow: '·', sign: 0 };
+  return d > 0 ? { arrow: '↑', sign: 1 } : { arrow: '↓', sign: -1 };
 }
 
 // ─────────────────────────────────────────────────────────────────
-// 方案 A：Hero 數值 + 迷你 sparkline + 7 天變化標籤
+// 方案 D：縱向時間軸（每筆一個 node + 與上筆 delta）
 // ─────────────────────────────────────────────────────────────────
-export function HeroSparklineCard({
+export function TimelineCard({
   label, series, unit, color,
 }: {
   label: string;
@@ -38,62 +58,127 @@ export function HeroSparklineCard({
   unit: string;
   color: string;
 }) {
-  const points = compact(series);
-  if (points.length === 0) {
-    return <EmptyCard label={label} />;
-  }
+  // 反序：最新在最上
+  const pts = compact(series).slice().reverse();
+  if (pts.length === 0) return <EmptyCard label={label} />;
 
-  const latest = points[points.length - 1]!;
-  // 找 7 天前最接近的點計算 delta
-  const sevenDaysAgo = DateTime.fromISO(latest.date).minus({ days: 7 }).toMillis();
-  const past = [...points].reverse().find((p) => DateTime.fromISO(p.date).toMillis() <= sevenDaysAgo);
-  const delta = past ? latest.value - past.value : 0;
+  return (
+    <div className="bg-surface border border-hairline rounded-xl p-4">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono">{label}</p>
+        <p className="text-[10px] text-text-3 font-mono tabular">共 {pts.length} 筆</p>
+      </div>
+      <ul className="space-y-3">
+        {pts.map((p, i) => {
+          const prev = pts[i + 1];
+          const delta = prev ? p.value - prev.value : 0;
+          const { arrow, sign } = deltaSign(delta);
+          const deltaColor = sign === 0 ? 'var(--color-text-3)' : sign > 0 ? '#ff7a45' : '#4ade80';
+          return (
+            <li key={p.date} className="flex gap-3 items-start">
+              <div className="flex flex-col items-center pt-1 flex-shrink-0" style={{ width: 12 }}>
+                <span
+                  className="block rounded-full"
+                  style={{
+                    width: 8, height: 8, background: color,
+                    boxShadow: i === 0 ? `0 0 0 3px ${color}33` : undefined,
+                  }}
+                />
+                {i < pts.length - 1 && (
+                  <span className="flex-1 bg-hairline mt-1" style={{ width: 1, minHeight: 24 }} />
+                )}
+              </div>
+              <div className="flex-1 min-w-0 flex items-baseline justify-between gap-3 pb-1">
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-text-3 font-mono uppercase tracking-wider">
+                    {fmtDateRelative(p.date)}
+                  </span>
+                  <span className="text-[18px] font-mono font-medium tabular leading-tight" style={{ color: i === 0 ? color : 'var(--color-text)' }}>
+                    {fmtVal(p.value, unit)}<span className="text-[11px] text-text-3 ml-0.5">{unit}</span>
+                  </span>
+                </div>
+                {prev && (
+                  <span className="text-[11px] font-mono tabular" style={{ color: deltaColor }}>
+                    {arrow} {Math.abs(delta).toFixed(1)}{unit}
+                  </span>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
-  const values = points.map((p) => p.value);
+// ─────────────────────────────────────────────────────────────────
+// 方案 E：表格 + 迷你進度條（區間位置可視化）
+// ─────────────────────────────────────────────────────────────────
+export function TableCard({
+  label, series, unit, color,
+}: {
+  label: string;
+  series: Series;
+  unit: string;
+  color: string;
+}) {
+  const pts = compact(series).slice().reverse();
+  if (pts.length === 0) return <EmptyCard label={label} />;
+
+  const values = pts.map((p) => p.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const avg = values.reduce((s, v) => s + v, 0) / values.length;
-
-  // sparkline 尺寸
-  const sw = 90, sh = 32, pad = 2;
   const range = max - min || 1;
-  const xs = (i: number) => points.length === 1 ? sw / 2 : pad + (i / (points.length - 1)) * (sw - 2 * pad);
-  const ys = (v: number) => pad + (sh - 2 * pad) - ((v - min) / range) * (sh - 2 * pad);
-  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${xs(i).toFixed(1)},${ys(p.value).toFixed(1)}`).join(' ');
 
   return (
     <div className="bg-surface border border-hairline rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
         <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono">{label}</p>
-        <p className="text-[10px] font-mono tabular" style={{ color: past ? color : 'var(--color-text-3)' }}>
-          {past ? `${deltaArrow(delta)} ${Math.abs(delta).toFixed(1)}${unit} · 7d` : '資料不足 7d'}
+        <p className="text-[10px] text-text-3 font-mono tabular">
+          {fmtVal(min, unit)} ~ {fmtVal(max, unit)}
         </p>
       </div>
-      <div className="flex items-end justify-between gap-3">
-        <div className="flex items-baseline gap-1">
-          <span className="text-[28px] font-mono font-medium tabular leading-none" style={{ color }}>
-            {fmtVal(latest.value, unit)}
-          </span>
-          {unit && <span className="text-[12px] text-text-3 font-mono mb-0.5">{unit}</span>}
-        </div>
-        <svg width={sw} height={sh} className="flex-shrink-0">
-          <path d={path} fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
-          <circle cx={xs(points.length - 1)} cy={ys(latest.value)} r="1.8" fill={color} />
-        </svg>
-      </div>
-      <div className="flex justify-between text-[10px] text-text-3 font-mono tabular mt-3">
-        <span>min {fmtVal(min, unit)}</span>
-        <span>avg {fmtVal(avg, unit)}</span>
-        <span>max {fmtVal(max, unit)}</span>
+      <div className="grid gap-1.5" style={{ gridTemplateColumns: '52px 1fr auto 76px' }}>
+        {pts.map((p, i) => {
+          const prev = pts[i + 1];
+          const delta = prev ? p.value - prev.value : 0;
+          const { arrow, sign } = deltaSign(delta);
+          const deltaColor = sign === 0 ? 'var(--color-text-3)' : sign > 0 ? '#ff7a45' : '#4ade80';
+          const pct = ((p.value - min) / range) * 100;
+          const isLatest = i === 0;
+          return (
+            <div key={p.date} className="contents">
+              <span className="text-[11px] text-text-3 font-mono tabular self-center">
+                {fmtDate(p.date)}
+              </span>
+              <span
+                className="text-[13px] font-mono font-medium tabular self-center"
+                style={{ color: isLatest ? color : 'var(--color-text)' }}
+              >
+                {fmtVal(p.value, unit)}<span className="text-[10px] text-text-3 ml-0.5">{unit}</span>
+              </span>
+              <span className="text-[10px] font-mono tabular self-center text-right" style={{ color: deltaColor }}>
+                {prev ? `${arrow} ${Math.abs(delta).toFixed(1)}` : '—'}
+              </span>
+              <span className="self-center relative" style={{ height: 6 }}>
+                <span className="absolute inset-0 rounded-full bg-hairline" />
+                <span
+                  className="absolute top-0 bottom-0 left-0 rounded-full"
+                  style={{ width: `${Math.max(pct, 2)}%`, background: color, opacity: isLatest ? 1 : 0.55 }}
+                />
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────
-// 方案 B：EMA 平滑趨勢線 + 原始點 + 上升/下降漸層 area
+// 方案 F：折線圖（上）+ 列表（下）混合
 // ─────────────────────────────────────────────────────────────────
-export function SmoothedTrendCard({
+export function HybridCard({
   label, series, unit, color,
 }: {
   label: string;
@@ -101,145 +186,70 @@ export function SmoothedTrendCard({
   unit: string;
   color: string;
 }) {
-  const points = compact(series);
-  if (points.length === 0) return <EmptyCard label={label} />;
+  const ptsAsc = compact(series);
+  if (ptsAsc.length === 0) return <EmptyCard label={label} />;
+  const pts = ptsAsc.slice().reverse();
+  const latest = ptsAsc[ptsAsc.length - 1]!;
 
-  // EMA 平滑
-  const alpha = 0.3;
-  const ema: number[] = [];
-  for (let i = 0; i < points.length; i++) {
-    if (i === 0) ema.push(points[i]!.value);
-    else ema.push(alpha * points[i]!.value + (1 - alpha) * ema[i - 1]!);
-  }
-
-  // 整體方向（首 → 末 EMA）
-  const overallTrend = ema[ema.length - 1]! - ema[0]!;
-  const fillColor = overallTrend > 0 ? '#ff7a45' : '#4ade80';  // 上升橙紅、下降綠
-
-  // SVG 維度
-  const W = 320, H = 110, padT = 14, padB = 18, padL = 6, padR = 6;
+  // 上半：簡潔折線（無逐點標註，純趨勢）
+  const W = 320, H = 90, padT = 10, padB = 14, padL = 6, padR = 6;
   const innerH = H - padT - padB;
-  const all = [...points.map((p) => p.value), ...ema];
-  const min = Math.min(...all);
-  const max = Math.max(...all);
-  const range = (max - min) || 1;
-  const pad = range * 0.12;
-  const yMin = min - pad, yMax = max + pad;
-  const yRange = yMax - yMin;
-  const xs = (i: number) => points.length === 1 ? W / 2 : padL + (i / (points.length - 1)) * (W - padL - padR);
-  const ys = (v: number) => padT + innerH - ((v - yMin) / yRange) * innerH;
-
-  const emaPath = ema.map((v, i) => `${i === 0 ? 'M' : 'L'}${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join(' ');
-  const areaPath = `${emaPath} L${xs(ema.length - 1).toFixed(1)},${(padT + innerH).toFixed(1)} L${xs(0).toFixed(1)},${(padT + innerH).toFixed(1)} Z`;
-  const gradId = `grad-${label.replace(/\s+/g, '-')}`;
-
-  const latest = points[points.length - 1]!;
-  const first = points[0]!;
-  const diff = latest.value - first.value;
-
-  return (
-    <div className="bg-surface border border-hairline rounded-xl p-4">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono">{label}</p>
-        <p className="text-[10px] font-mono tabular" style={{ color: fillColor }}>
-          {deltaArrow(diff)} {Math.abs(diff).toFixed(1)}{unit} · 全期
-        </p>
-      </div>
-      <div className="flex items-baseline gap-1 mb-1">
-        <span className="text-[22px] font-mono font-medium tabular leading-none" style={{ color }}>
-          {fmtVal(latest.value, unit)}
-        </span>
-        {unit && <span className="text-[11px] text-text-3 font-mono">{unit}</span>}
-      </div>
-      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-        <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={fillColor} stopOpacity="0.28" />
-            <stop offset="100%" stopColor={fillColor} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path d={areaPath} fill={`url(#${gradId})`} />
-        {/* 原始點 — 半透明小點 */}
-        {points.map((p, i) => (
-          <circle key={`raw-${p.date}-${i}`} cx={xs(i)} cy={ys(p.value)} r="1.3" fill={color} opacity="0.5" />
-        ))}
-        {/* EMA 平滑線 — 主視覺 */}
-        <path d={emaPath} fill="none" stroke={color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
-      </svg>
-      <div className="flex justify-between text-[10px] text-text-3 font-mono tabular mt-1">
-        <span>起 {fmtVal(first.value, unit)}</span>
-        <span>EMA α=0.3</span>
-        <span>今 {fmtVal(latest.value, unit)}</span>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
-// 方案 C：熱力條帶（每天一格，顏色深淺 = 數值高低）+ 底部 sparkline
-// ─────────────────────────────────────────────────────────────────
-export function HeatStripCard({
-  label, series, unit, color,
-}: {
-  label: string;
-  series: Series;
-  unit: string;
-  color: string;
-}) {
-  const points = compact(series);
-  if (points.length === 0) return <EmptyCard label={label} />;
-
-  const values = points.map((p) => p.value);
+  const values = ptsAsc.map((p) => p.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
-  const latest = points[points.length - 1]!;
-
-  // 熱力條帶：每筆數據一格，顏色 opacity 從 0.2 (min) 到 1.0 (max)
-  const stripeW = 320, stripeH = 28;
-  const cellW = stripeW / points.length;
-
-  // sparkline
-  const sw = stripeW, sh = 36, pad = 3;
-  const xs = (i: number) => points.length === 1 ? sw / 2 : pad + (i / (points.length - 1)) * (sw - 2 * pad);
-  const ys = (v: number) => pad + (sh - 2 * pad) - ((v - min) / range) * (sh - 2 * pad);
-  const sparkPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${xs(i).toFixed(1)},${ys(p.value).toFixed(1)}`).join(' ');
+  const pad = range * 0.12;
+  const yMin = min - pad, yMax = max + pad;
+  const yRange = yMax - yMin;
+  const xs = (i: number) => ptsAsc.length === 1 ? W / 2 : padL + (i / (ptsAsc.length - 1)) * (W - padL - padR);
+  const ys = (v: number) => padT + innerH - ((v - yMin) / yRange) * innerH;
+  const path = ptsAsc.map((p, i) => `${i === 0 ? 'M' : 'L'}${xs(i).toFixed(1)},${ys(p.value).toFixed(1)}`).join(' ');
+  const areaPath = `${path} L${xs(ptsAsc.length - 1).toFixed(1)},${(padT + innerH).toFixed(1)} L${xs(0).toFixed(1)},${(padT + innerH).toFixed(1)} Z`;
+  const gradId = `hybrid-grad-${label.replace(/\s+/g, '-')}`;
 
   return (
     <div className="bg-surface border border-hairline rounded-xl p-4">
       <div className="flex items-center justify-between mb-2">
         <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono">{label}</p>
-        <p className="text-[10px] text-text-3 font-mono tabular">{points.length} 筆</p>
-      </div>
-      <div className="flex items-baseline gap-1 mb-3">
-        <span className="text-[22px] font-mono font-medium tabular leading-none" style={{ color }}>
-          {fmtVal(latest.value, unit)}
+        <span className="text-[20px] font-mono font-medium tabular" style={{ color }}>
+          {fmtVal(latest.value, unit)}<span className="text-[11px] text-text-3 ml-0.5">{unit}</span>
         </span>
-        {unit && <span className="text-[11px] text-text-3 font-mono">{unit}</span>}
       </div>
-      <svg width="100%" height={stripeH} viewBox={`0 0 ${stripeW} ${stripeH}`} preserveAspectRatio="none" className="rounded-md overflow-hidden">
-        {points.map((p, i) => {
-          const intensity = 0.2 + ((p.value - min) / range) * 0.8;
-          return (
-            <rect
-              key={`cell-${p.date}-${i}`}
-              x={i * cellW}
-              y={0}
-              width={cellW + 0.5}
-              height={stripeH}
-              fill={color}
-              opacity={intensity}
-            />
-          );
-        })}
+      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block mb-3">
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill={`url(#${gradId})`} />
+        <path d={path} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+        <circle cx={xs(ptsAsc.length - 1)} cy={ys(latest.value)} r="2.5" fill={color} />
       </svg>
-      <svg width="100%" height={sh} viewBox={`0 0 ${sw} ${sh}`} preserveAspectRatio="none" className="mt-1">
-        <path d={sparkPath} fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
-        <circle cx={xs(points.length - 1)} cy={ys(latest.value)} r="1.8" fill={color} />
-      </svg>
-      <div className="flex justify-between text-[10px] text-text-3 font-mono tabular mt-1">
-        <span>淺 = {fmtVal(min, unit)}</span>
-        <span>深 = {fmtVal(max, unit)}</span>
+      <div className="border-t border-hairline pt-2">
+        <div className="grid gap-y-1.5 text-[12px] font-mono tabular" style={{ gridTemplateColumns: '56px 1fr auto' }}>
+          {pts.map((p, i) => {
+            const prev = pts[i + 1];
+            const delta = prev ? p.value - prev.value : 0;
+            const { arrow, sign } = deltaSign(delta);
+            const deltaColor = sign === 0 ? 'var(--color-text-3)' : sign > 0 ? '#ff7a45' : '#4ade80';
+            const isLatest = i === 0;
+            return (
+              <div key={p.date} className="contents">
+                <span className="text-[11px] text-text-3 self-center">{fmtDate(p.date)}</span>
+                <span
+                  className="self-center"
+                  style={{ color: isLatest ? color : 'var(--color-text)', fontWeight: isLatest ? 600 : 400 }}
+                >
+                  {fmtVal(p.value, unit)}<span className="text-[10px] text-text-3 ml-0.5">{unit}</span>
+                </span>
+                <span className="self-center text-right text-[11px]" style={{ color: deltaColor }}>
+                  {prev ? `${arrow} ${Math.abs(delta).toFixed(1)}` : '—'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
