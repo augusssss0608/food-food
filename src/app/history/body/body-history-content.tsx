@@ -5,6 +5,7 @@ import { PageShell } from '@/components/ui/page-shell';
 import { PageHeader } from '@/components/page-header';
 import { Card } from '@/components/ui/card';
 import { LineChart } from '@/components/line-chart';
+import { HeroSparklineCard, SmoothedTrendCard, HeatStripCard } from '@/components/body-charts';
 import { BodyUpload } from '@/components/body-upload';
 import { useToast } from '@/components/ui/toast';
 import type { BodyRow, BodySnapshot } from '@/lib/body-snapshot';
@@ -16,19 +17,26 @@ const fetcher = async (url: string): Promise<BodySnapshot> => {
   return r.json();
 };
 
+type Variant = 'hero' | 'smoothed' | 'heat' | 'line';
 type ChartDef = {
   key: keyof Omit<BodyRow, 'measured_at'>;
   label: string;
   unit: string;
   color: string;
+  variant: Variant;
 };
 
+// 同頁並列展示三種風格 + 兩個原折線作對比：
+// A → 體重（hero 數字 + 7d sparkline）
+// B → 體脂（EMA 平滑 + 漸層 area）
+// C → 骨骼肌（熱力條帶 + sparkline）
+// 內臟脂肪 / BMI 保留現有折線圖供對比
 const CHARTS: ChartDef[] = [
-  { key: 'weight_kg', label: '體重', unit: 'kg', color: '#c8ff00' },
-  { key: 'body_fat_pct', label: '體脂', unit: '%', color: '#ff7a45' },
-  { key: 'skeletal_muscle_pct', label: '骨骼肌', unit: '%', color: '#dcff3a' },
-  { key: 'visceral_fat', label: '內臟脂肪', unit: '', color: '#a4a4ac' },
-  { key: 'bmi', label: 'BMI', unit: '', color: '#4ade80' },
+  { key: 'weight_kg',           label: '體重 · A',     unit: 'kg', color: '#c8ff00', variant: 'hero' },
+  { key: 'body_fat_pct',        label: '體脂 · B',     unit: '%',  color: '#ff7a45', variant: 'smoothed' },
+  { key: 'skeletal_muscle_pct', label: '骨骼肌 · C',   unit: '%',  color: '#dcff3a', variant: 'heat' },
+  { key: 'visceral_fat',        label: '內臟脂肪',     unit: '',   color: '#a4a4ac', variant: 'line' },
+  { key: 'bmi',                 label: 'BMI',          unit: '',   color: '#4ade80', variant: 'line' },
 ];
 
 /**
@@ -99,6 +107,15 @@ export function BodyHistoryContent({ initialSnapshot }: { initialSnapshot: BodyS
         <div className="space-y-4">
           {CHARTS.map((c) => {
             const series = rows.map((r) => ({ date: r.measured_at, value: r[c.key] }));
+            if (c.variant === 'hero') {
+              return <HeroSparklineCard key={c.key} label={c.label} series={series} unit={c.unit} color={c.color} />;
+            }
+            if (c.variant === 'smoothed') {
+              return <SmoothedTrendCard key={c.key} label={c.label} series={series} unit={c.unit} color={c.color} />;
+            }
+            if (c.variant === 'heat') {
+              return <HeatStripCard key={c.key} label={c.label} series={series} unit={c.unit} color={c.color} />;
+            }
             return (
               <Card key={c.key} className="p-4">
                 <div className="flex items-baseline justify-between mb-3">
