@@ -147,11 +147,12 @@ function SubAction({
 function SubPage({ title, onBack, children }: { title: string; onBack: () => void; children: React.ReactNode }) {
   return (
     <div
-      className="absolute inset-0 bg-ink z-30 flex flex-col"
+      className="fixed inset-0 bg-ink z-[100] flex flex-col"
       style={{
         animation: 'ff-slide-right 0.28s cubic-bezier(0.16, 1, 0.3, 1) both',
         paddingTop: 'env(safe-area-inset-top)',
         paddingBottom: 'env(safe-area-inset-bottom)',
+        height: '100dvh',
       }}
     >
       <header className="flex-shrink-0 px-4 h-12 flex items-center border-b border-hairline relative">

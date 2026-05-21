@@ -83,7 +83,7 @@ function DialOverlay({ onClose, onRecord }: { onClose: () => void; onRecord: (n:
   }, [item, onClose, onRecord]);
 
   return (
-    <div className="absolute inset-0 bg-ink z-30 flex flex-col" style={{ animation: 'ff-fade-in 0.25s ease-out both' }}>
+    <div className="fixed inset-0 bg-ink z-[100] flex flex-col" style={{ animation: 'ff-fade-in 0.25s ease-out both', height: '100dvh' }}>
       <header className="flex-shrink-0 px-4 h-12 flex items-center justify-between relative" style={{ paddingTop: 'env(safe-area-inset-top)', height: 'calc(env(safe-area-inset-top) + 3rem)' }}>
         <button onClick={onClose} className="flex items-center gap-1.5 text-accent hover:text-accent-press active:scale-95">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -94,7 +94,7 @@ function DialOverlay({ onClose, onRecord }: { onClose: () => void; onRecord: (n:
         <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-text-3 absolute left-1/2 -translate-x-1/2" style={{ top: 'calc(env(safe-area-inset-top) + 0.95rem)' }}>選餐</p>
       </header>
 
-      <div className="flex-1 flex flex-col items-center justify-between px-5 pb-6">
+      <div className="flex-1 flex flex-col items-center justify-between px-5 overflow-y-auto" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}>
         <div className="flex-1 flex flex-col items-center justify-center w-full">
           <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono mb-3">
             {idx + 1} / {MOCK_PRESETS.length}

@@ -46,7 +46,7 @@ export default function LedgerPage() {
 
   return (
     <PrototypeShell title="5. Today Ledger">
-      <div className="h-full overflow-y-auto" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 48px)', paddingBottom: '32px' }}>
+      <div className="h-full overflow-y-auto" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 48px)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 32px)' }}>
         <div className="max-w-md mx-auto px-5">
           <header className="mb-6">
             <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-1">today · 5/22</p>
@@ -156,17 +156,24 @@ export default function LedgerPage() {
                   </div>
                   <div className="space-y-2">
                     <input
-                      autoFocus
+                      name="preset-name"
+                      aria-label="菜名"
                       value={wizName}
                       onChange={(e) => setWizName(e.target.value)}
                       placeholder="菜名（必填）"
+                      maxLength={50}
                       className="w-full h-10 px-3 rounded-lg bg-surface border border-hairline text-[13px] text-text outline-none focus:border-accent/60"
                     />
                     <input
+                      name="preset-kcal"
+                      aria-label="熱量"
                       type="number"
+                      inputMode="numeric"
                       value={wizKcal}
                       onChange={(e) => setWizKcal(e.target.value)}
                       placeholder="熱量 kcal（必填）"
+                      min={0}
+                      max={5000}
                       className="w-full h-10 px-3 rounded-lg bg-surface border border-hairline text-[13px] text-text outline-none focus:border-accent/60"
                     />
                     <button

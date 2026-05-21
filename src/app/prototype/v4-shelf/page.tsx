@@ -78,59 +78,62 @@ export default function ShelfPage() {
             paddingBottom: 'env(safe-area-inset-bottom)',
           }}
         >
-          {/* 把手 + peek 區（始終可拖） */}
+          {/* 把手 — 只有這一條可拖。chip / 按鈕區域不掛 touch handler 避免衝突 */}
           <div
-            className="flex-shrink-0 select-none cursor-grab active:cursor-grabbing"
+            className="flex-shrink-0 select-none cursor-grab active:cursor-grabbing pt-2.5 pb-1"
             onTouchStart={onTouchStart}
             onTouchMove={onTouchMove}
             onTouchEnd={onTouchEnd}
             onTouchCancel={onTouchEnd}
             onClick={() => state === 'peek' && setState('half')}
+            style={{ touchAction: 'none' }}
           >
-            <div className="w-10 h-1 bg-text-3/40 rounded-full mx-auto mt-2.5 mb-2" />
-            <div className="px-4 pb-3">
-              {state === 'peek' ? (
-                // peek 狀態：水平滾動的常用 chip + 拍照
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
-                    {MOCK_PRESETS.slice(0, 5).map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); record(p.name, p.kcal); }}
-                        className="bg-surface border border-hairline rounded-full pl-3 pr-2.5 py-1.5 flex items-center gap-2 hover:border-accent/60 active:scale-95 transition-all flex-shrink-0"
-                      >
-                        <span className="text-[12px] text-text font-medium truncate max-w-[90px]">{p.name}</span>
-                        <span className="text-[10px] font-mono text-accent tabular">{p.kcal}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); record('拍照識別餐', 420); }}
-                    className="flex-shrink-0 w-9 h-9 rounded-full bg-surface border border-hairline flex items-center justify-center hover:border-accent/60 active:scale-95 transition-all"
-                  >
-                    <span className="text-[15px]">📷</span>
-                  </button>
-                </div>
-              ) : (
-                // half / full：header 切換
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] uppercase tracking-wider text-text-3 font-mono">
-                    {state === 'full' ? `全部 ${MOCK_PRESETS.length} 個菜單` : '常用菜單'}
-                  </p>
-                  {state === 'half' ? (
-                    <button onClick={(e) => { e.stopPropagation(); setState('full'); }} className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95">
-                      展開全部 ↑
+            <div className="w-10 h-1 bg-text-3/40 rounded-full mx-auto" />
+            <p className="text-[9px] text-text-4 font-mono uppercase tracking-wider text-center mt-1.5">
+              {state === 'peek' ? '上拉展開' : state === 'half' ? '上拉看全部 / 下拉收起' : '下拉收起'}
+            </p>
+          </div>
+          <div className="flex-shrink-0 px-4 pb-3">
+            {state === 'peek' ? (
+              <div className="flex items-center gap-2">
+                <div className="flex-1 flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+                  {MOCK_PRESETS.slice(0, 5).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => record(p.name, p.kcal)}
+                      className="bg-surface border border-hairline rounded-full pl-3 pr-2.5 py-1.5 flex items-center gap-2 hover:border-accent/60 active:scale-95 transition-all flex-shrink-0"
+                    >
+                      <span className="text-[12px] text-text font-medium truncate max-w-[90px]">{p.name}</span>
+                      <span className="text-[10px] font-mono text-accent tabular">{p.kcal}</span>
                     </button>
-                  ) : (
-                    <button onClick={(e) => { e.stopPropagation(); setState('half'); }} className="text-[11px] text-text-3 font-mono uppercase tracking-wider hover:text-text active:scale-95">
-                      收起 ↓
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => record('拍照識別餐', 420)}
+                  className="flex-shrink-0 w-9 h-9 rounded-full bg-surface border border-hairline flex items-center justify-center hover:border-accent/60 active:scale-95 transition-all"
+                >
+                  <span className="text-[15px]">📷</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] uppercase tracking-wider text-text-3 font-mono">
+                  {state === 'full' ? `全部 ${MOCK_PRESETS.length} 個菜單` : '常用菜單'}
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setState('peek')} className="text-[11px] text-text-3 font-mono uppercase tracking-wider hover:text-text active:scale-95">
+                    收起
+                  </button>
+                  {state === 'half' && (
+                    <button onClick={() => setState('full')} className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95">
+                      展開全部 ↑
                     </button>
                   )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* 展開後的內容區 */}

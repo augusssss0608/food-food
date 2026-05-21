@@ -44,7 +44,7 @@ export default function TabsPage() {
       <MockHome log={log} rightAction={<PlusButton onClick={() => setOpen(true)} />} />
 
       <MockSheet open={open} onClose={() => setOpen(false)} title="新增餐" minHeight="75vh">
-        <div className="h-full flex flex-col" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        <div className="h-full flex flex-col">
           <div className="flex-1 relative overflow-hidden">
             {/* 用絕對定位避免 transform 影響 flex 高度計算 */}
             <div
@@ -117,7 +117,11 @@ export default function TabsPage() {
             </div>
           </div>
 
-          <nav className="flex-shrink-0 grid grid-cols-3 border-t border-hairline bg-surface-2/95 backdrop-blur">
+          <nav
+            className="flex-shrink-0 grid grid-cols-3 border-t border-hairline bg-surface-2/95 backdrop-blur"
+            onTouchStart={onTouchStart}
+            onTouchEnd={onTouchEnd}
+          >
             {TABS.map((t) => {
               const active = tab === t.key;
               return (

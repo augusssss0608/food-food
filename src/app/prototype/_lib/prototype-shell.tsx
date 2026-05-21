@@ -10,7 +10,7 @@ import { type ReactNode } from 'react';
  */
 export function PrototypeShell({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="min-h-dvh bg-ink text-text relative overflow-hidden">
+    <div className="h-dvh bg-ink text-text relative overflow-hidden">
       {children}
       <Link
         href="/prototype"

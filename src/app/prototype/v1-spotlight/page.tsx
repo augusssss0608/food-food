@@ -15,8 +15,8 @@ export default function SpotlightPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 320);
-    else { setQ(''); setSection('main'); }
+    // 不 autoFocus，避免 iPhone Safari 立即彈鍵盤遮擋下方入口；用戶點輸入框才彈
+    if (!open) { setQ(''); setSection('main'); }
   }, [open]);
 
   const trimmed = q.trim();
