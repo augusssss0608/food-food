@@ -155,6 +155,24 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
     }, { revalidate: false });
   }, [mutate, data]);
 
+  const patchUpdateCustomPreset = useCallback((preset: UserMealPreset) => {
+    mutate((prev) => {
+      const base = prev ?? data;
+      if (!base) return base;
+      const existing = base.customPresets ?? [];
+      return { ...base, customPresets: existing.map((p) => (p.id === preset.id ? preset : p)) };
+    }, { revalidate: false });
+  }, [mutate, data]);
+
+  const patchDeleteCustomPreset = useCallback((id: string) => {
+    mutate((prev) => {
+      const base = prev ?? data;
+      if (!base) return base;
+      const existing = base.customPresets ?? [];
+      return { ...base, customPresets: existing.filter((p) => p.id !== id) };
+    }, { revalidate: false });
+  }, [mutate, data]);
+
   // 拍照入庫後：normalize 後同名替換，prepend，截 10
   const patchRecentPhotoMeals = useCallback((meal: TodayMeal) => {
     if (meal.source !== 'photo_ai') return;
@@ -303,6 +321,56 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
       return false;
     } finally {
       setCreatePresetBusy(false);
+    }
+  }
+
+  async function updatePreset(id: string, input: MealPresetFormInput): Promise<boolean> {
+    setCreatePresetBusy(true);
+    setDuplicatePresetName(false);
+    try {
+      const r = await fetch(`/api/meal-presets/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'sec-fetch-site': 'same-origin' },
+        body: JSON.stringify(input),
+      });
+      if (r.status === 409) {
+        setDuplicatePresetName(true);
+        return false;
+      }
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({ error: 'unknown' }));
+        throw new Error(e.error ?? `HTTP ${r.status}`);
+      }
+      const j = await r.json();
+      const preset = j?.preset as UserMealPreset | undefined;
+      if (preset) {
+        patchUpdateCustomPreset(preset);
+        toast.success('已更新', preset.name);
+      }
+      return true;
+    } catch (e: unknown) {
+      toast.error('更新失敗', (e as Error).message ?? 'unknown');
+      return false;
+    } finally {
+      setCreatePresetBusy(false);
+    }
+  }
+
+  async function deletePreset(id: string): Promise<boolean> {
+    try {
+      const r = await fetch(`/api/meal-presets/${id}`, {
+        method: 'DELETE',
+        headers: { 'sec-fetch-site': 'same-origin' },
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({ error: 'unknown' }));
+        throw new Error(e.error ?? `HTTP ${r.status}`);
+      }
+      patchDeleteCustomPreset(id);
+      return true;
+    } catch (e: unknown) {
+      toast.error('刪除失敗', (e as Error).message ?? 'unknown');
+      return false;
     }
   }
 
@@ -469,6 +537,8 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
         duplicatePresetName={duplicatePresetName}
         onClearDuplicatePresetName={() => setDuplicatePresetName(false)}
         onCreatePreset={createPreset}
+        onUpdatePreset={updatePreset}
+        onDeletePreset={deletePreset}
         mealExtractBusy={mealExtractBusy}
         onUploadMealPhoto={uploadMealPhoto}
         mealPreview={mealPreview}

@@ -139,6 +139,15 @@ input[type=number] { -moz-appearance: textfield; }
   from { opacity: 0; transform: translateY(8px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+/* iPhone home screen 風格抖動：用奇/偶 nth-child 錯開相位讓網格不整齊抖（更像 iOS） */
+@keyframes ff-wiggle-a {
+  0%, 100% { transform: rotate(-0.8deg); }
+  50%      { transform: rotate(0.8deg); }
+}
+@keyframes ff-wiggle-b {
+  0%, 100% { transform: rotate(0.8deg); }
+  50%      { transform: rotate(-0.8deg); }
+}
 
 .anim-enter { animation: ff-enter 0.5s var(--ease-out-soft) both; }
 .anim-fade-in { animation: ff-fade-in 0.2s ease-out both; }

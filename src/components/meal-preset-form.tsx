@@ -99,7 +99,6 @@ export function MealPresetForm({
         maxLength={50}
         invalid={duplicateError || (name.length > 0 && nameInvalid)}
         hint={duplicateError ? '已存在同名菜單，請改名' : trimmedName.length > 0 ? `${trimmedName.length}/50` : undefined}
-        autoFocus
       />
       <NumberInput
         label="熱量 *"
@@ -117,7 +116,7 @@ export function MealPresetForm({
       </div>
       <NumberInput label="纖維（可選）" value={fiber} onValueChange={setFiber} suffix="g" min={0} max={200} invalid={fiberInvalid} />
       <div className="flex gap-2 pt-1">
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy} className="flex-1">
+        <Button type="button" variant="secondary" onClick={onCancel} disabled={busy} className="flex-1">
           取消
         </Button>
         <Button type="button" onClick={handleSubmit} disabled={!canSubmit} className="flex-1">

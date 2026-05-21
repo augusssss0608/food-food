@@ -29,6 +29,8 @@ export function AddMealSheet({
   duplicatePresetName,
   onClearDuplicatePresetName,
   onCreatePreset,
+  onUpdatePreset,
+  onDeletePreset,
   mealExtractBusy,
   onUploadMealPhoto,
   mealPreview,
@@ -46,6 +48,8 @@ export function AddMealSheet({
   duplicatePresetName: boolean;
   onClearDuplicatePresetName: () => void;
   onCreatePreset: (input: MealPresetFormInput) => Promise<boolean>;
+  onUpdatePreset: (id: string, input: MealPresetFormInput) => Promise<boolean>;
+  onDeletePreset: (id: string) => Promise<boolean>;
   mealExtractBusy: boolean;
   onUploadMealPhoto: (b64: string) => void | Promise<void>;
   mealPreview: MealPreview | null;
@@ -55,16 +59,29 @@ export function AddMealSheet({
 }) {
   const [view, setView] = useState<'list' | 'form'>('list');
   const [formPrefill, setFormPrefill] = useState<MealPresetFormPrefill | undefined>(undefined);
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [confirmingMeal, setConfirmingMeal] = useState<RecentPhotoMeal | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const longPressTimerRef = useRef<number | null>(null);
 
   // sheet 關閉 → 回 list view，清狀態，避免下次打開停在 form
   useEffect(() => {
     if (!open) {
       setView('list');
       setFormPrefill(undefined);
+      setEditingPresetId(null);
       setConfirmingMeal(null);
+      setEditMode(false);
+      setConfirmingDeleteId(null);
     }
   }, [open]);
+
+  // edit mode 退出時清 long-press timer
+  useEffect(() => () => {
+    if (longPressTimerRef.current != null) window.clearTimeout(longPressTimerRef.current);
+  }, []);
 
   // ESC 關 + body 鎖滾。但 dialog 開 / view='form' 時 Escape 不該關 sheet（讓 dialog 自己取消 / form 取消）
   useEffect(() => {
@@ -88,11 +105,27 @@ export function AddMealSheet({
   }, [open, onClose, confirmingMeal, view]);
 
   function openNewPresetForm() {
+    setEditingPresetId(null);
     setFormPrefill(undefined);
     setView('form');
   }
 
+  function openEditPresetForm(preset: UserMealPreset) {
+    setEditingPresetId(preset.id);
+    setFormPrefill({
+      name: preset.name,
+      kcal: preset.kcal,
+      protein_g: preset.protein_g,
+      carb_g: preset.carb_g,
+      fat_g: preset.fat_g,
+      fiber_g: preset.fiber_g,
+    });
+    setView('form');
+    setEditMode(false);
+  }
+
   function openConvertPresetForm(meal: RecentPhotoMeal) {
+    setEditingPresetId(null);
     setFormPrefill({
       name: meal.dish_name,
       kcal: meal.kcal,
@@ -107,11 +140,44 @@ export function AddMealSheet({
   }
 
   async function handleSubmitForm(input: MealPresetFormInput): Promise<void> {
-    const ok = await onCreatePreset(input);
-    if (ok) setView('list');
+    const ok = editingPresetId
+      ? await onUpdatePreset(editingPresetId, input)
+      : await onCreatePreset(input);
+    if (ok) {
+      setView('list');
+      setEditingPresetId(null);
+    }
   }
 
-  const title = view === 'form' ? '新菜單' : '新增餐';
+  function handlePresetPointerDown(preset: UserMealPreset) {
+    if (longPressTimerRef.current != null) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = window.setTimeout(() => {
+      // 長按 ~500ms → 進入抖動編輯模式（iPhone 風格）
+      setEditMode(true);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(8);
+    }, 500);
+  }
+  function handlePresetPointerCancel() {
+    if (longPressTimerRef.current != null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  async function confirmDeletePreset() {
+    if (!confirmingDeleteId) return;
+    setDeleteBusy(true);
+    const ok = await onDeletePreset(confirmingDeleteId);
+    setDeleteBusy(false);
+    if (ok) {
+      setConfirmingDeleteId(null);
+      // 刪完繼續在 edit mode，方便連續刪除；若已無 preset，自動退出 edit
+      if (customPresets.length <= 1) setEditMode(false);
+    }
+  }
+
+  const title = view === 'form' ? (editingPresetId ? '編輯菜單' : '新菜單') : '新增餐';
+  const presetToDelete = confirmingDeleteId ? customPresets.find((p) => p.id === confirmingDeleteId) ?? null : null;
 
   return (
     <>
@@ -130,16 +196,26 @@ export function AddMealSheet({
             <section className="mb-6">
               <div className="flex items-center justify-between mb-3">
                 <SectionLabel className="m-0">自定義菜單</SectionLabel>
-                <button
-                  type="button"
-                  onClick={openNewPresetForm}
-                  aria-label="新增自定義菜單"
-                  className="w-7 h-7 flex items-center justify-center rounded-full bg-surface border border-hairline hover:border-accent/60 hover:text-accent transition-colors text-text-2 active:scale-95"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
+                {editMode ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditMode(false)}
+                    className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95"
+                  >
+                    完成
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={openNewPresetForm}
+                    aria-label="新增自定義菜單"
+                    className="w-7 h-7 flex items-center justify-center rounded-full bg-surface border border-hairline hover:border-accent/60 hover:text-accent transition-colors text-text-2 active:scale-95"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
+                  </button>
+                )}
               </div>
               {customPresets.length === 0 ? (
                 <Card className="px-5 py-6 text-center">
@@ -147,30 +223,55 @@ export function AddMealSheet({
                   <p className="text-[11px] text-text-4 mt-1">點右上 + 建立第一個</p>
                 </Card>
               ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  {customPresets.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => onPickCustomPreset(p)}
-                      disabled={presetBusy !== null}
-                      className={[
-                        'group relative bg-surface border border-hairline rounded-xl p-4 text-left transition-colors',
-                        'hover:border-hairline-strong hover:bg-surface-2',
-                        'active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed',
-                      ].join(' ')}
-                    >
-                      <p className="text-[14px] text-text font-medium leading-tight truncate">{p.name}</p>
-                      <p className="text-[18px] font-mono text-accent tabular mt-2 leading-none">
-                        {Math.round(p.kcal)}<span className="text-[10px] text-text-3 ml-1">kcal</span>
-                      </p>
-                      {presetBusy === p.id && (
-                        <div className="absolute inset-0 bg-ink/60 backdrop-blur-sm rounded-xl flex items-center justify-center">
-                          <Spinner size={18} className="text-accent" />
-                        </div>
-                      )}
-                    </button>
-                  ))}
+                // 最多顯示 ~3 行（6 個）高度，超過內部滾動；長按進入抖動編輯模式
+                <div className="grid grid-cols-2 gap-2 overflow-y-auto" style={{ maxHeight: '17rem' }}>
+                  {customPresets.map((p, i) => {
+                    const wiggleAnim = editMode ? (i % 2 === 0 ? 'ff-wiggle-a 0.32s ease-in-out infinite' : 'ff-wiggle-b 0.32s ease-in-out infinite') : undefined;
+                    return (
+                      <div key={p.id} className="relative" style={{ animation: wiggleAnim }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editMode) openEditPresetForm(p);
+                            else onPickCustomPreset(p);
+                          }}
+                          onPointerDown={() => !editMode && handlePresetPointerDown(p)}
+                          onPointerUp={handlePresetPointerCancel}
+                          onPointerCancel={handlePresetPointerCancel}
+                          onPointerLeave={handlePresetPointerCancel}
+                          onContextMenu={(e) => e.preventDefault()}
+                          disabled={presetBusy !== null && !editMode}
+                          className={[
+                            'group relative bg-surface border border-hairline rounded-xl p-4 text-left transition-colors w-full',
+                            'hover:border-hairline-strong hover:bg-surface-2',
+                            'active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed',
+                          ].join(' ')}
+                        >
+                          <p className="text-[14px] text-text font-medium leading-tight truncate">{p.name}</p>
+                          <p className="text-[18px] font-mono text-accent tabular mt-2 leading-none">
+                            {Math.round(p.kcal)}<span className="text-[10px] text-text-3 ml-1">kcal</span>
+                          </p>
+                          {presetBusy === p.id && (
+                            <div className="absolute inset-0 bg-ink/60 backdrop-blur-sm rounded-xl flex items-center justify-center">
+                              <Spinner size={18} className="text-accent" />
+                            </div>
+                          )}
+                        </button>
+                        {editMode && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(p.id); }}
+                            aria-label={`刪除 ${p.name}`}
+                            className="absolute -top-2 -left-2 w-6 h-6 rounded-full bg-danger text-white flex items-center justify-center shadow-md active:scale-90 transition-transform"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                              <path d="M6 6l12 12M18 6L6 18" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -234,6 +335,23 @@ export function AddMealSheet({
         confirmText="加入"
         onCancel={() => setConfirmingMeal(null)}
         onConfirm={() => confirmingMeal && openConvertPresetForm(confirmingMeal)}
+      />
+
+      <Dialog
+        open={presetToDelete != null}
+        title="刪除這個菜單？"
+        body={
+          presetToDelete ? (
+            <span>
+              將永久移除「<span className="text-text font-medium">{presetToDelete.name}</span>」。已記錄的歷史餐不受影響。
+            </span>
+          ) : null
+        }
+        confirmText="刪除"
+        variant="danger"
+        busy={deleteBusy}
+        onCancel={deleteBusy ? undefined : () => setConfirmingDeleteId(null)}
+        onConfirm={confirmDeletePreset}
       />
     </>
   );
