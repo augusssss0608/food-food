@@ -104,6 +104,14 @@ export function LineChart({
     .join(' ');
 
   const last = points[points.length - 1]!;
+  const first = points[0]!;
+  const avgY = values.reduce((s, v) => s + v, 0) / values.length;
+
+  // 7 天前最接近的點：用 luxon 找 <= last.date - 7 天 的最後一筆
+  const sevenDaysAgoTs = DateTime.fromISO(last.date).minus({ days: 7 }).toMillis();
+  const past7 = [...points].reverse().find((p) => DateTime.fromISO(p.date).toMillis() <= sevenDaysAgoTs);
+  const delta7d = summarizeDelta(past7 ? last.value - past7.value : null, unit);
+  const deltaAll = summarizeDelta(points.length >= 2 ? last.value - first.value : null, unit);
 
   function clientXToIdx(clientX: number): number | null {
     const el = containerRef.current;
@@ -320,13 +328,37 @@ export function LineChart({
         </svg>
       </div>
 
-      <div className="flex justify-between text-[10px] text-text-2 font-mono tabular mt-1">
-        <span>min {minY.toFixed(1)}{unit}</span>
-        <span className="text-text font-medium">最新 {last.value.toFixed(1)}{unit}</span>
-        <span>max {maxY.toFixed(1)}{unit}</span>
+      {/* 兩行 stats：上排當前 / 7d / 全期變化，下排 min / avg / max */}
+      <div className="mt-2 space-y-1">
+        <div className="flex justify-between items-baseline text-[11px] font-mono tabular">
+          <span className="text-text font-medium" style={{ color }}>
+            {last.value.toFixed(1)}<span className="text-[9px] text-text-3 ml-0.5">{unit}</span>
+          </span>
+          <span style={{ color: delta7d.color }}>
+            7d {delta7d.label}
+          </span>
+          <span style={{ color: deltaAll.color }}>
+            全期 {deltaAll.label}
+          </span>
+        </div>
+        <div className="flex justify-between text-[10px] text-text-3 font-mono tabular">
+          <span>min {minY.toFixed(1)}{unit}</span>
+          <span>avg {avgY.toFixed(1)}{unit}</span>
+          <span>max {maxY.toFixed(1)}{unit}</span>
+        </div>
       </div>
     </div>
   );
+}
+
+type DeltaSummary = { label: string; color: string };
+
+function summarizeDelta(diff: number | null, unit: string): DeltaSummary {
+  if (diff == null) return { label: '—', color: 'var(--color-text-3)' };
+  if (Math.abs(diff) < 0.05) return { label: `· 0${unit}`, color: 'var(--color-text-3)' };
+  const arrow = diff > 0 ? '↑' : '↓';
+  const col = diff > 0 ? '#ff7a45' : '#4ade80';
+  return { label: `${arrow} ${Math.abs(diff).toFixed(1)}${unit}`, color: col };
 }
 
 function formatDate(iso: string): string {
