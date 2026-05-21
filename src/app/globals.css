@@ -85,9 +85,13 @@ body::before {
   mix-blend-mode: overlay;
 }
 
-main, header, aside, dialog, [data-toast-root] {
-  position: relative;
-  z-index: 2;
+/* 把這條規則包到 @layer base，否則它作為未分層 CSS 會壓過 Tailwind utilities，
+   導致 .fixed / .absolute / .z-[71] 等工具類在 aside / dialog 上失效 */
+@layer base {
+  main, header, aside, dialog, [data-toast-root] {
+    position: relative;
+    z-index: 2;
+  }
 }
 
 /* numerics use tabular alignment everywhere they appear */

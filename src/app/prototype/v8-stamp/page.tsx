@@ -58,11 +58,12 @@ export default function StampPage() {
   useEffect(() => () => clearLongPressTimer(), []);
 
   function onPointerDown(e: React.PointerEvent, presetId: string) {
+    // 立即 setPointerCapture：後續 move 即使離開 cell DOM 仍能收到
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* ignore */ }
     startRef.current = { x: e.clientX, y: e.clientY };
     setArmingId(presetId);
     clearLongPressTimer();
     longPressTimerRef.current = window.setTimeout(() => {
-      // 進入 drag 模式：震動提示 + 開始跟手
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
       const last = startRef.current;
       if (last) {
@@ -170,7 +171,7 @@ export default function StampPage() {
               </div>
             </div>
             <p className="text-[10px] text-text-4 font-mono mb-3">
-              {editMode ? '✏️ 編輯模式：點印章編輯、點紅叉刪除' : 'ⓘ 按住印章 0.2 秒進拖曳；短按 / 上下滑可滾動列表'}
+              {editMode ? '✏️ 編輯模式：點印章編輯、點紅叉刪除' : 'ⓘ 按住印章 0.2 秒進拖曳；想滾動列表請從印章間空白處上下滑'}
             </p>
             <div className="grid grid-cols-3 gap-3">
               {presets.map((p, i) => {
@@ -191,7 +192,9 @@ export default function StampPage() {
                         'select-none',
                         editMode ? 'cursor-pointer active:scale-95 transition-transform' : '',
                       ].join(' ')}
-                      style={{ touchAction: editMode ? 'auto' : (drag?.presetId === p.id ? 'none' : 'pan-y') }}
+                      // 非編輯模式下 cell 永遠 touch-action: none，阻止瀏覽器接管 pan-y
+                      // 滾動列表必須從 cell 之間的空白處開始（外層容器 touchAction: pan-y）
+                      style={{ touchAction: editMode ? 'auto' : 'none' }}
                     >
                       <div
                         className={[
