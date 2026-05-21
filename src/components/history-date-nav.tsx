@@ -37,7 +37,7 @@ export function HistoryDateNav({
       <div className="flex items-center justify-between bg-surface border border-hairline rounded-xl px-3 py-3">
         <Link
           href={`/history/meals?date=${prevDate}`}
-          prefetch={false}
+          prefetch
           replace
           aria-label="前一天"
           className="p-2 -ml-1 text-text-2 hover:text-text rounded-md transition-colors"
@@ -68,7 +68,7 @@ export function HistoryDateNav({
         ) : (
           <Link
             href={`/history/meals?date=${nextDate}`}
-            prefetch={false}
+            prefetch
             replace
             aria-label="後一天"
             className="p-2 -mr-1 text-text-2 hover:text-text rounded-md transition-colors"
@@ -85,7 +85,7 @@ export function HistoryDateNav({
         <div className="flex justify-center mt-2">
           <Link
             href={`/history/meals?date=${todayDate}`}
-            prefetch={false}
+            prefetch
             replace
             className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-accent font-mono hover:text-accent-press active:scale-95 transition-all px-3 py-1.5 rounded-md border border-accent/30 bg-accent/10"
           >

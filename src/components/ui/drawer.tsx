@@ -23,12 +23,25 @@ export function Drawer({
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
+    // 主滾動容器是 main（globals.css：html/body 都 overflow:hidden + main 100dvh overflow-y:auto）
+    // 所以鎖 body 沒用，要鎖 main。touchAction: none 額外攔截 iOS rubber-band。
+    const mainEl = document.querySelector('main') as HTMLElement | null;
+    const prevMainOverflow = mainEl?.style.overflow ?? '';
+    const prevMainTouchAction = mainEl?.style.touchAction ?? '';
+    if (mainEl) {
+      mainEl.style.overflow = 'hidden';
+      mainEl.style.touchAction = 'none';
+    }
     document.body.style.overflow = 'hidden';
     // drawer 一打開就立即 prefetch 常用目標的 RSC payload，等用戶點 item 已在 cache 裡
     for (const href of PREFETCH_ON_OPEN) router.prefetch(href);
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = '';
+      if (mainEl) {
+        mainEl.style.overflow = prevMainOverflow;
+        mainEl.style.touchAction = prevMainTouchAction;
+      }
     };
   }, [open, onClose, router]);
 
