@@ -1,31 +1,30 @@
 'use client';
-import { useEffect, useRef, useState, type TouchEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type TouchEvent } from 'react';
 import { DateTime } from 'luxon';
 
 /**
- * SVG 折線圖 + 分頁手勢 + 長按 scrub tooltip。
+ * SVG 折線圖 + 連續橫向滑動 + 長按 scrub tooltip。
  *
- * 用戶要求：畫面內最多顯示 10 條，更多資料左右滑切時段。
- * 行為：
- * - data 預期是時間遞增（早 → 晚）的點，最新在末尾
- * - 分頁：每頁 POINTS_PER_PAGE=10 條，pageIdx=0 = 最新一頁，pageIdx 越大越舊
- * - 觸摸 state machine：
- *     pending → 位移 > MOVE_THRESHOLD 後鎖方向
- *     dx > dy → swipe（水平翻頁 / 拖動）
- *     dy >= dx → scroll（讓瀏覽器原生垂直滾動接管）
- *   也支援長按 LONG_PRESS_MS 不動 → 進 scrub（tooltip 跟手）
- *   多手指 reset
- * - Tooltip clamp：hoverPercent < 12 → translateX(0)；> 88 → translateX(-100%)；其餘 -50%
- * - iOS 長按副作用關閉：WebkitTouchCallout / UserSelect: none
+ * 用戶需求（取代分頁）：
+ * - 視窗內顯示約 10 個點（POINT_PX 寬度控制）
+ * - 橫向不間斷滑動瀏覽全部 90 天數據（native scroll）
+ * - 長按 400ms 進入 scrub 模式（暫時禁 native scroll），手指跟手移動 tooltip
+ *   釋放後恢復 native scroll
  *
- * unmount cleanup 清 long-press timer。
+ * iOS 細節：
+ * - WebKitOverflowScrolling: 'touch' → iOS 慣性 + 邊界回彈
+ * - touch-action 動態切換：scrub 時 'none' 完全交給我們，平時 default 讓瀏覽器處理
+ * - WebkitTouchCallout / UserSelect: none → 關長按放大鏡 + 文字選取
+ * - 隱藏滾動條，視覺乾淨
+ * - 初次掛載 / 數據變更 scrollLeft 設到最右（讓最新資料在視窗內）
  */
-const POINTS_PER_PAGE = 10;
+const POINT_PX = 32;          // 每個資料點水平佔位（10 個點 ≈ 320px viewport）
+const H = 100;
+const PAD_T = 8, PAD_B = 8;
+const PAD_L = 8, PAD_R = 8;   // SVG 左右留白，避免首末點貼邊
+const MIN_W = 320;            // 數據少於 10 點時的最小寬度（佔滿一頁）
 const MOVE_THRESHOLD = 10;
 const LONG_PRESS_MS = 400;
-const PAGE_SWIPE_THRESHOLD = 60;  // 釋放時 |dx| > 此值 → 翻頁
-
-type Phase = 'idle' | 'pending' | 'scrub' | 'scroll' | 'swipe';
 
 export function LineChart({
   data,
@@ -36,19 +35,18 @@ export function LineChart({
   unit: string;
   color: string;
 }) {
-  // 跳過 null，保留時間順序
-  const allPoints = data
+  const points = data
     .map((d) => (d.value == null ? null : { date: d.date, value: d.value }))
     .filter((p): p is { date: string; value: number } => p != null);
 
-  const svgRef = useRef<SVGSVGElement>(null);
-  const phaseRef = useRef<Phase>('idle');
+  const containerRef = useRef<HTMLDivElement>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
-  const lastTouchXRef = useRef<number | null>(null);
+  const lastTouchClientXRef = useRef<number | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);  // 相對當前 page 的 idx
-  const [pageIdx, setPageIdx] = useState(0);                       // 0 = 最新頁
-  const [swipeOffset, setSwipeOffset] = useState(0);               // 拖動中 X 偏移 (px)
+  const [scrubbing, setScrubbing] = useState(false);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  // 用 scrollVersion 觸發 re-render 讓 tooltip 跟 scroll 移動
+  const [, setScrollVersion] = useState(0);
 
   useEffect(() => () => {
     if (longPressTimerRef.current != null) {
@@ -57,16 +55,29 @@ export function LineChart({
     }
   }, []);
 
-  if (allPoints.length === 0) {
+  // 初次掛載 / 數據變更：scroll 到最右（最新資料）。用 useLayoutEffect 在 paint 前設，
+  // 避免「先看到最左再跳到最右」一幀閃爍（codex round A polish 反饋）。
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.scrollLeft = el.scrollWidth;
+  }, [points.length]);
+
+  // hover tooltip 位置依賴 scrollLeft；綁 scroll 事件強制 re-render
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onScroll = () => setScrollVersion((v) => v + 1);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [points.length]);
+
+  if (points.length === 0) {
     return <p className="text-text-3 text-[12px] text-center py-6">無資料</p>;
   }
 
-  // 分頁：pageIdx=0 取最後 N 個（最新），pageIdx=1 取倒數第 N+1 到 2N 個（更舊），依此類推
-  const totalPages = Math.max(1, Math.ceil(allPoints.length / POINTS_PER_PAGE));
-  const safePageIdx = Math.min(pageIdx, totalPages - 1);
-  const end = allPoints.length - safePageIdx * POINTS_PER_PAGE;
-  const start = Math.max(0, end - POINTS_PER_PAGE);
-  const points = allPoints.slice(start, end);
+  const totalW = Math.max(MIN_W, PAD_L + PAD_R + points.length * POINT_PX);
+  const innerH = H - PAD_T - PAD_B;
 
   const values = points.map((p) => p.value);
   const minY = Math.min(...values);
@@ -76,14 +87,11 @@ export function LineChart({
   const yMin = minY - pad;
   const yMax = maxY + pad;
 
-  const W = 320;
-  const H = 100;
-  const PAD_L = 6, PAD_R = 6, PAD_T = 8, PAD_B = 8;
-  const innerW = W - PAD_L - PAD_R;
-  const innerH = H - PAD_T - PAD_B;
-
+  // 點 X 座標：center of each POINT_PX slot
   const xPos = (i: number) =>
-    PAD_L + (points.length === 1 ? innerW / 2 : (i / (points.length - 1)) * innerW);
+    points.length === 1
+      ? totalW / 2
+      : PAD_L + POINT_PX / 2 + i * POINT_PX;
   const yPos = (v: number) =>
     PAD_T + innerH - ((v - yMin) / (yMax - yMin)) * innerH;
 
@@ -94,11 +102,12 @@ export function LineChart({
   const last = points[points.length - 1]!;
 
   function clientXToIdx(clientX: number): number | null {
-    if (!svgRef.current || points.length === 0) return null;
-    const rect = svgRef.current.getBoundingClientRect();
+    const el = containerRef.current;
+    if (!el || points.length === 0) return null;
+    const rect = el.getBoundingClientRect();
     if (rect.width <= 0) return null;
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    const xInSvg = ratio * W;
+    const xInContainer = clientX - rect.left;
+    const xInSvg = xInContainer + el.scrollLeft;
     let nearest = 0;
     let minDist = Infinity;
     for (let i = 0; i < points.length; i++) {
@@ -115,101 +124,87 @@ export function LineChart({
     }
   }
 
-  function reset() {
-    phaseRef.current = 'idle';
-    startRef.current = null;
-    lastTouchXRef.current = null;
-    clearLongPress();
-    setHoverIdx(null);
-    setSwipeOffset(0);
-  }
-
-  function onTouchStart(e: TouchEvent<SVGSVGElement>) {
-    if (e.touches.length !== 1) { reset(); return; }
+  function onTouchStart(e: TouchEvent<HTMLDivElement>) {
+    if (e.touches.length !== 1) {
+      // 多指：reset
+      clearLongPress();
+      setScrubbing(false);
+      setHoverIdx(null);
+      return;
+    }
     const t = e.touches[0]!;
-    phaseRef.current = 'pending';
     startRef.current = { x: t.clientX, y: t.clientY };
-    lastTouchXRef.current = t.clientX;
+    lastTouchClientXRef.current = t.clientX;
     clearLongPress();
     longPressTimerRef.current = window.setTimeout(() => {
-      // 長按不動 → 進 scrub
-      if (phaseRef.current === 'pending' && lastTouchXRef.current != null) {
-        phaseRef.current = 'scrub';
-        setHoverIdx(clientXToIdx(lastTouchXRef.current));
+      // 長按超時 → 進 scrub mode（同時 useEffect 換掉 overflow/touchAction）
+      if (lastTouchClientXRef.current != null) {
+        setScrubbing(true);
+        setHoverIdx(clientXToIdx(lastTouchClientXRef.current));
       }
     }, LONG_PRESS_MS);
   }
 
-  function onTouchMove(e: TouchEvent<SVGSVGElement>) {
-    if (e.touches.length !== 1) { reset(); return; }
+  function onTouchMove(e: TouchEvent<HTMLDivElement>) {
+    if (e.touches.length !== 1) {
+      // 多指（縮放手勢等）→ 同 touchstart reset 路徑（codex round A：之前直接 return 漏清了）
+      clearLongPress();
+      setScrubbing(false);
+      setHoverIdx(null);
+      startRef.current = null;
+      return;
+    }
     const t = e.touches[0]!;
     const start = startRef.current;
     if (!start) return;
-    lastTouchXRef.current = t.clientX;
+    lastTouchClientXRef.current = t.clientX;
+
+    if (scrubbing) {
+      setHoverIdx(clientXToIdx(t.clientX));
+      return;
+    }
+    // 還沒 scrub：若位移超過閾值，取消長按（讓 native scroll 接管）
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
-
-    if (phaseRef.current === 'pending') {
-      if (Math.abs(dx) > MOVE_THRESHOLD || Math.abs(dy) > MOVE_THRESHOLD) {
-        clearLongPress();
-        if (Math.abs(dx) > Math.abs(dy)) {
-          phaseRef.current = 'swipe';
-          setSwipeOffset(dx);
-        } else {
-          phaseRef.current = 'scroll';
-        }
-      }
-      return;
+    if (Math.abs(dx) > MOVE_THRESHOLD || Math.abs(dy) > MOVE_THRESHOLD) {
+      clearLongPress();
     }
-    if (phaseRef.current === 'swipe') {
-      setSwipeOffset(dx);
-      return;
-    }
-    if (phaseRef.current === 'scrub') {
-      setHoverIdx(clientXToIdx(t.clientX));
-    }
-    // scroll：什麼都不做
   }
 
   function onTouchEnd() {
-    const phase = phaseRef.current;
-    if (phase === 'swipe') {
-      // 右滑（dx > 0）→ 看更舊（pageIdx++，因為 pageIdx 大表示更舊）
-      // 左滑（dx < 0）→ 看更新（pageIdx--）
-      if (swipeOffset > PAGE_SWIPE_THRESHOLD && safePageIdx < totalPages - 1) {
-        setPageIdx(safePageIdx + 1);
-      } else if (swipeOffset < -PAGE_SWIPE_THRESHOLD && safePageIdx > 0) {
-        setPageIdx(safePageIdx - 1);
-      }
+    clearLongPress();
+    startRef.current = null;
+    if (scrubbing) {
+      setScrubbing(false);
+      setHoverIdx(null);
     }
-    reset();
   }
-  function onTouchCancel() { reset(); }
 
   const hovered = hoverIdx != null ? points[hoverIdx]! : null;
-  const hoverPercent = hoverIdx != null ? (xPos(hoverIdx) / W) * 100 : null;
+  const containerEl = containerRef.current;
+  const containerW = containerEl?.clientWidth ?? MIN_W;
+  const scrollLeft = containerEl?.scrollLeft ?? 0;
+  const hoverXInContainer =
+    hoverIdx != null ? xPos(hoverIdx) - scrollLeft : null;
+  const hoverPercent =
+    hoverXInContainer != null && containerW > 0
+      ? (hoverXInContainer / containerW) * 100
+      : null;
 
+  // clamp 邊界：tooltip 約 100px、視窗 ~320px，半寬 ≈ 16%。用 15/85 比 12/88 更安全
   let tooltipTransform = 'translateX(-50%)';
   if (hoverPercent != null) {
-    if (hoverPercent < 12) tooltipTransform = 'translateX(0)';
-    else if (hoverPercent > 88) tooltipTransform = 'translateX(-100%)';
+    if (hoverPercent < 15) tooltipTransform = 'translateX(0)';
+    else if (hoverPercent > 85) tooltipTransform = 'translateX(-100%)';
   }
-
-  // 拖動翻頁時 SVG 跟手位移；長按 scrub 不位移
-  const swiping = phaseRef.current === 'swipe';
-  const svgTransform = swiping ? `translateX(${swipeOffset}px)` : 'translateX(0)';
-  const svgTransition = swiping ? 'none' : 'transform 200ms ease-out';
-
-  // 分頁提示：第 N / 共 M 頁（M=1 時不顯示）
-  const showPager = totalPages > 1;
 
   return (
     <div className="relative pt-7">
-      {hovered && hoverPercent != null && (
+      {hovered && hoverXInContainer != null && (
         <div
           className="absolute top-0 pointer-events-none z-10"
           style={{
-            left: `${hoverPercent}%`,
+            left: `${hoverXInContainer}px`,
             transform: tooltipTransform,
           }}
         >
@@ -222,25 +217,32 @@ export function LineChart({
         </div>
       )}
 
-      <div style={{ overflow: 'hidden' }}>
+      <div
+        ref={containerRef}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
+        className="select-none"
+        style={{
+          overflowX: scrubbing ? 'hidden' : 'auto',
+          overflowY: 'hidden',
+          // scrub 時 touchAction:none 完全交給我們處理；非 scrub 時不設，讓瀏覽器
+          // 默認處理水平/垂直手勢（水平 swipe 滾容器，垂直 swipe 滾頁面）
+          touchAction: scrubbing ? 'none' : undefined,
+          WebkitOverflowScrolling: 'touch',
+          WebkitTouchCallout: 'none',
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
+          scrollbarWidth: 'none',  // Firefox 兜底（::-webkit-scrollbar 已全局隱藏）
+        }}
+      >
         <svg
-          ref={svgRef}
-          viewBox={`0 0 ${W} ${H}`}
-          width="100%"
-          className="block select-none"
-          style={{
-            touchAction: 'pan-y',
-            WebkitTouchCallout: 'none',
-            WebkitUserSelect: 'none',
-            userSelect: 'none',
-            transform: svgTransform,
-            transition: svgTransition,
-          }}
-          preserveAspectRatio="none"
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
-          onTouchCancel={onTouchCancel}
+          width={totalW}
+          height={H}
+          viewBox={`0 0 ${totalW} ${H}`}
+          className="block"
+          preserveAspectRatio="xMidYMid meet"
         >
           <path
             d={pathD}
@@ -286,39 +288,9 @@ export function LineChart({
 
       <div className="flex justify-between text-[10px] text-text-2 font-mono tabular mt-1">
         <span>min {minY.toFixed(1)}{unit}</span>
-        {/* 只在最新頁顯示「最新 X」；舊頁顯示「末筆 X」避免語義誤導（不是 90 天最新） */}
-        <span className="text-text font-medium">
-          {safePageIdx === 0 ? '最新' : '末筆'} {last.value.toFixed(1)}{unit}
-        </span>
+        <span className="text-text font-medium">最新 {last.value.toFixed(1)}{unit}</span>
         <span>max {maxY.toFixed(1)}{unit}</span>
       </div>
-
-      {showPager && (
-        <div className="flex justify-center items-center gap-2 mt-1.5">
-          {/* 點按式翻頁，輔助手勢失效時的 fallback */}
-          <button
-            type="button"
-            onClick={() => safePageIdx < totalPages - 1 && setPageIdx(safePageIdx + 1)}
-            disabled={safePageIdx >= totalPages - 1}
-            aria-label="更舊"
-            className="text-text-3 disabled:opacity-30 active:scale-90 transition-all px-1"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M15 18l-6-6 6-6" /></svg>
-          </button>
-          <span className="text-[10px] text-text-3 font-mono tabular">
-            {safePageIdx + 1} / {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={() => safePageIdx > 0 && setPageIdx(safePageIdx - 1)}
-            disabled={safePageIdx <= 0}
-            aria-label="更新"
-            className="text-text-3 disabled:opacity-30 active:scale-90 transition-all px-1"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
-          </button>
-        </div>
-      )}
     </div>
   );
 }
