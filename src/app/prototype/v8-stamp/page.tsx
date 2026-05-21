@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
-import { MockToast, useMockTodayLog } from '../_lib/mock-home';
-import { MOCK_PRESETS } from '../_lib/mock-presets';
+import { MockToast, useMockTodayLog, useMockPresets } from '../_lib/mock-home';
+import { PresetManagerSheet } from '../_lib/preset-manager';
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -19,13 +19,15 @@ type DragState = {
   y: number;
 };
 
-const LONG_PRESS_MS = 250;
-const MOVE_CANCEL_PX = 8;
+const LONG_PRESS_MS = 350;
+const MOVE_CANCEL_PX = 10;
 
 export default function StampPage() {
   const { log, addEntry } = useMockTodayLog();
+  const { presets, addPreset, updatePreset, deletePreset } = useMockPresets();
+  const [manageOpen, setManageOpen] = useState(false);
   const [drag, setDrag] = useState<DragState | null>(null);
-  const [armingId, setArmingId] = useState<string | null>(null); // 長按中（尚未進入 drag）
+  const [armingId, setArmingId] = useState<string | null>(null);
   const [hoverDrop, setHoverDrop] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
@@ -90,7 +92,7 @@ export default function StampPage() {
   function onPointerUp() {
     clearLongPressTimer();
     if (drag) {
-      const preset = MOCK_PRESETS.find((p) => p.id === drag.presetId);
+      const preset = presets.find((p) => p.id === drag.presetId);
       if (preset && hoverDrop) record(preset.name, preset.kcal);
     }
     setDrag(null);
@@ -99,7 +101,7 @@ export default function StampPage() {
     startRef.current = null;
   }
 
-  const draggingPreset = drag ? MOCK_PRESETS.find((p) => p.id === drag.presetId) : null;
+  const draggingPreset = drag ? presets.find((p) => p.id === drag.presetId) : null;
 
   return (
     <PrototypeShell title="7. Meal Stamp">
@@ -134,14 +136,22 @@ export default function StampPage() {
         {/* 印章盤：允許瀏覽器垂直 pan，只長按進 drag */}
         <div className="flex-1 overflow-y-auto px-5 pt-3 pb-4 border-t border-hairline">
           <div className="max-w-md mx-auto">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono mb-3 mt-2">
-              印章盤 · {MOCK_PRESETS.length} 個
-            </p>
+            <div className="flex items-center justify-between mb-2 mt-2">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono">
+                印章盤 · {presets.length} 個
+              </p>
+              <button
+                onClick={() => setManageOpen(true)}
+                className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95"
+              >
+                ⚙ 管理
+              </button>
+            </div>
             <p className="text-[10px] text-text-4 font-mono mb-3">
-              ⓘ 長按 0.25 秒進入拖曳模式 · 短按可滾動列表
+              ⓘ 長按 0.35 秒進入拖曳模式 · 短按可滾動列表
             </p>
             <div className="grid grid-cols-3 gap-3">
-              {MOCK_PRESETS.map((p) => (
+              {presets.map((p) => (
                 <div
                   key={p.id}
                   onPointerDown={(e) => onPointerDown(e, p.id)}
@@ -178,6 +188,15 @@ export default function StampPage() {
           </div>
         )}
       </div>
+      <PresetManagerSheet
+        open={manageOpen}
+        onClose={() => setManageOpen(false)}
+        presets={presets}
+        onAdd={addPreset}
+        onUpdate={updatePreset}
+        onDelete={deletePreset}
+      />
+
       <MockToast text={toast} />
     </PrototypeShell>
   );

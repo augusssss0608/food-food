@@ -1,8 +1,9 @@
 'use client';
 import { useRef, useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
-import { MockHome, MockSheet, PlusButton, MockToast, useMockTodayLog } from '../_lib/mock-home';
-import { MOCK_PRESETS, MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
+import { MockHome, MockSheet, PlusButton, MockToast, useMockTodayLog, useMockPresets } from '../_lib/mock-home';
+import { PresetManagerSheet } from '../_lib/preset-manager';
+import { MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
 
 type Tab = 'custom' | 'recent' | 'photo';
 const TABS: { key: Tab; label: string; icon: string }[] = [
@@ -13,7 +14,9 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
 
 export default function TabsPage() {
   const { log, addEntry } = useMockTodayLog();
+  const { presets, addPreset, updatePreset, deletePreset } = useMockPresets();
   const [open, setOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const [tab, setTab] = useState<Tab>('custom');
   const [toast, setToast] = useState<string | null>(null);
   const startX = useRef<number | null>(null);
@@ -59,9 +62,17 @@ export default function TabsPage() {
                   <div className="px-4 py-4">
                     {t.key === 'custom' && (
                       <>
-                        <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono mb-2.5">{MOCK_PRESETS.length} 個菜單</p>
+                        <div className="flex items-center justify-between mb-2.5">
+                          <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono">{presets.length} 個菜單</p>
+                          <button
+                            onClick={() => setManageOpen(true)}
+                            className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95 flex items-center gap-1"
+                          >
+                            ⚙ 管理
+                          </button>
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
-                          {MOCK_PRESETS.map((p) => (
+                          {presets.map((p) => (
                             <button
                               key={p.id}
                               type="button"
@@ -70,7 +81,7 @@ export default function TabsPage() {
                             >
                               <p className="text-[13px] text-text font-medium leading-tight truncate">{p.name}</p>
                               <p className="text-[17px] font-mono text-accent tabular mt-1.5 leading-none">
-                                {p.kcal}<span className="text-[9px] text-text-3 ml-1">kcal</span>
+                                {Math.round(p.kcal)}<span className="text-[9px] text-text-3 ml-1">kcal</span>
                               </p>
                             </button>
                           ))}
@@ -142,6 +153,15 @@ export default function TabsPage() {
           </nav>
         </div>
       </MockSheet>
+
+      <PresetManagerSheet
+        open={manageOpen}
+        onClose={() => setManageOpen(false)}
+        presets={presets}
+        onAdd={addPreset}
+        onUpdate={updatePreset}
+        onDelete={deletePreset}
+      />
 
       <MockToast text={toast} />
     </PrototypeShell>

@@ -1,14 +1,17 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
-import { MockHome, MockSheet, PlusButton, MockToast, useMockTodayLog } from '../_lib/mock-home';
-import { MOCK_PRESETS, MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
+import { MockHome, MockSheet, PlusButton, MockToast, useMockTodayLog, useMockPresets } from '../_lib/mock-home';
+import { PresetManagerSheet } from '../_lib/preset-manager';
+import { MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
 
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
 export default function SpotlightPage() {
   const { log, addEntry } = useMockTodayLog();
+  const { presets, addPreset, updatePreset, deletePreset } = useMockPresets();
   const [open, setOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const [q, setQ] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const [section, setSection] = useState<'main' | 'photo' | 'recent'>('main');
@@ -21,10 +24,10 @@ export default function SpotlightPage() {
 
   const trimmed = q.trim();
   const filtered = useMemo(() => {
-    if (!trimmed) return MOCK_PRESETS;
+    if (!trimmed) return presets;
     const nq = norm(trimmed);
-    return MOCK_PRESETS.filter((p) => norm(p.name).includes(nq));
-  }, [trimmed]);
+    return presets.filter((p) => norm(p.name).includes(nq));
+  }, [trimmed, presets]);
 
   const noMatch = trimmed.length > 0 && filtered.length === 0;
 
@@ -33,6 +36,11 @@ export default function SpotlightPage() {
     setToast(`已記錄「${name}」`);
     setTimeout(() => setToast(null), 1800);
     setOpen(false);
+  }
+
+  function recordAndCreate(name: string, kcal: number) {
+    addPreset(name, kcal);
+    record(name, kcal);
   }
 
   return (
@@ -69,9 +77,7 @@ export default function SpotlightPage() {
               {noMatch ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    record(trimmed, 0);
-                  }}
+                  onClick={() => recordAndCreate(trimmed, 0)}
                   className="w-full bg-accent/10 border border-accent/30 rounded-xl p-4 text-left hover:bg-accent/15 active:scale-[0.99] transition-all"
                 >
                   <p className="text-[11px] uppercase tracking-wider text-accent font-mono mb-1">找不到？</p>
@@ -82,7 +88,7 @@ export default function SpotlightPage() {
               ) : (
                 <>
                   <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono mb-2">
-                    {trimmed ? `匹配 ${filtered.length} 個` : `建議 · 全部 ${MOCK_PRESETS.length} 個`}
+                    {trimmed ? `匹配 ${filtered.length} 個` : `建議 · 全部 ${presets.length} 個`}
                   </p>
                   <ul className="space-y-1.5">
                     {filtered.map((p) => (
@@ -106,25 +112,41 @@ export default function SpotlightPage() {
               )}
             </div>
 
-            <div className="flex-shrink-0 px-4 pt-2 pb-3 border-t border-hairline flex gap-2">
+            <div className="flex-shrink-0 px-4 pt-2 pb-3 border-t border-hairline grid grid-cols-3 gap-2">
               <button
                 onClick={() => setSection('photo')}
-                className="flex-1 bg-surface border border-hairline rounded-lg px-3 py-2.5 text-[12px] text-text-2 hover:border-hairline-strong active:scale-[0.99] transition-all flex items-center justify-center gap-1.5"
+                className="bg-surface border border-hairline rounded-lg px-2 py-2.5 text-[12px] text-text-2 hover:border-hairline-strong active:scale-[0.99] transition-all flex items-center justify-center gap-1"
               >
                 <span>📷</span>
                 <span>拍餐</span>
               </button>
               <button
                 onClick={() => setSection('recent')}
-                className="flex-1 bg-surface border border-hairline rounded-lg px-3 py-2.5 text-[12px] text-text-2 hover:border-hairline-strong active:scale-[0.99] transition-all flex items-center justify-center gap-1.5"
+                className="bg-surface border border-hairline rounded-lg px-2 py-2.5 text-[12px] text-text-2 hover:border-hairline-strong active:scale-[0.99] transition-all flex items-center justify-center gap-1"
               >
                 <span>🕐</span>
-                <span>近期 ({MOCK_RECENT_PHOTO.length})</span>
+                <span>近期</span>
+              </button>
+              <button
+                onClick={() => { setOpen(false); setManageOpen(true); }}
+                className="bg-surface border border-hairline rounded-lg px-2 py-2.5 text-[12px] text-text-2 hover:border-hairline-strong active:scale-[0.99] transition-all flex items-center justify-center gap-1"
+              >
+                <span>⚙</span>
+                <span>管理</span>
               </button>
             </div>
           </div>
         )}
       </MockSheet>
+
+      <PresetManagerSheet
+        open={manageOpen}
+        onClose={() => setManageOpen(false)}
+        presets={presets}
+        onAdd={addPreset}
+        onUpdate={updatePreset}
+        onDelete={deletePreset}
+      />
 
       <MockToast text={toast} />
     </PrototypeShell>

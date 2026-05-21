@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, type ReactNode } from 'react';
-import { MOCK_TODAY_LOG, type TodayLogEntry } from './mock-presets';
+import { MOCK_PRESETS, MOCK_TODAY_LOG, type TodayLogEntry } from './mock-presets';
+import type { UserMealPreset } from '@/lib/home-snapshot';
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -14,6 +15,35 @@ export function useMockTodayLog() {
     setLog((prev) => [...prev, { id: `l-${Date.now()}-${Math.random()}`, ate_at: new Date().toISOString(), dish_name: name, kcal }]);
   }
   return { log, addEntry };
+}
+
+/**
+ * 共用 mock customPresets state，所有 variant 能新增 / 編輯 / 刪除。
+ */
+export function useMockPresets() {
+  const [presets, setPresets] = useState<UserMealPreset[]>(MOCK_PRESETS);
+  function addPreset(name: string, kcal: number) {
+    setPresets((prev) => [
+      {
+        id: `p-${Date.now()}`,
+        name,
+        kcal,
+        protein_g: 0,
+        carb_g: 0,
+        fat_g: 0,
+        fiber_g: 0,
+        created_at: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+  }
+  function updatePreset(id: string, name: string, kcal: number) {
+    setPresets((prev) => prev.map((p) => (p.id === id ? { ...p, name, kcal } : p)));
+  }
+  function deletePreset(id: string) {
+    setPresets((prev) => prev.filter((p) => p.id !== id));
+  }
+  return { presets, addPreset, updatePreset, deletePreset };
 }
 
 /**

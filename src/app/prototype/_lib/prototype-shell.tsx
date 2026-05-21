@@ -10,8 +10,8 @@ import { type ReactNode } from 'react';
  */
 export function PrototypeShell({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="h-dvh bg-ink text-text relative overflow-hidden">
-      {children}
+    <div className="h-dvh bg-ink text-text relative flex flex-col">
+      <div className="flex-1 min-h-0 relative">{children}</div>
       <Link
         href="/prototype"
         className="fixed left-3 z-[200] px-2.5 py-1 rounded-full bg-surface-2/80 backdrop-blur border border-hairline text-text-2 hover:text-text active:scale-95 transition-all flex items-center gap-1.5"

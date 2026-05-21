@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
-import { MockHome, MockToast, useMockTodayLog } from '../_lib/mock-home';
-import { MOCK_PRESETS, MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
+import { MockHome, MockToast, useMockTodayLog, useMockPresets } from '../_lib/mock-home';
+import { PresetManagerSheet } from '../_lib/preset-manager';
+import { MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
 
 const PEEK_H = 92;
 const HALF_H = 320;
@@ -16,6 +17,8 @@ type State = 'peek' | 'half' | 'full';
  */
 export default function ShelfPage() {
   const { log, addEntry } = useMockTodayLog();
+  const { presets, addPreset, updatePreset, deletePreset } = useMockPresets();
+  const [manageOpen, setManageOpen] = useState(false);
   const [state, setState] = useState<State>('peek');
   const [dragOffset, setDragOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -97,7 +100,7 @@ export default function ShelfPage() {
             {state === 'peek' ? (
               <div className="flex items-center gap-2">
                 <div className="flex-1 flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
-                  {MOCK_PRESETS.slice(0, 5).map((p) => (
+                  {presets.slice(0, 5).map((p) => (
                     <button
                       key={p.id}
                       type="button"
@@ -120,9 +123,12 @@ export default function ShelfPage() {
             ) : (
               <div className="flex items-center justify-between">
                 <p className="text-[11px] uppercase tracking-wider text-text-3 font-mono">
-                  {state === 'full' ? `全部 ${MOCK_PRESETS.length} 個菜單` : '常用菜單'}
+                  {state === 'full' ? `全部 ${presets.length} 個菜單` : '常用菜單'}
                 </p>
                 <div className="flex gap-3">
+                  <button onClick={() => setManageOpen(true)} className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95">
+                    ⚙ 管理
+                  </button>
                   <button onClick={() => setState('peek')} className="text-[11px] text-text-3 font-mono uppercase tracking-wider hover:text-text active:scale-95">
                     收起
                   </button>
@@ -140,7 +146,7 @@ export default function ShelfPage() {
           {state !== 'peek' && (
             <div className="flex-1 overflow-y-auto px-4 pb-4 border-t border-hairline">
               <div className="grid grid-cols-2 gap-2 pt-3">
-                {(state === 'full' ? MOCK_PRESETS : MOCK_PRESETS.slice(0, 6)).map((p) => (
+                {(state === 'full' ? presets : presets.slice(0, 6)).map((p) => (
                   <button
                     key={p.id}
                     type="button"
@@ -148,7 +154,7 @@ export default function ShelfPage() {
                     className="bg-surface border border-hairline rounded-xl p-3.5 text-left hover:border-hairline-strong active:scale-[0.98] transition-all"
                   >
                     <p className="text-[13px] text-text font-medium truncate">{p.name}</p>
-                    <p className="text-[16px] font-mono text-accent tabular mt-1">{p.kcal}<span className="text-[9px] text-text-3 ml-0.5">kcal</span></p>
+                    <p className="text-[16px] font-mono text-accent tabular mt-1">{Math.round(p.kcal)}<span className="text-[9px] text-text-3 ml-0.5">kcal</span></p>
                   </button>
                 ))}
               </div>
@@ -176,6 +182,15 @@ export default function ShelfPage() {
         </aside>
 
         <MockToast text={toast} />
+
+        <PresetManagerSheet
+          open={manageOpen}
+          onClose={() => setManageOpen(false)}
+          presets={presets}
+          onAdd={addPreset}
+          onUpdate={updatePreset}
+          onDelete={deletePreset}
+        />
       </div>
     </PrototypeShell>
   );

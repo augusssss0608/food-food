@@ -1,14 +1,17 @@
 'use client';
 import { useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
-import { MockHome, MockToast, useMockTodayLog } from '../_lib/mock-home';
-import { MOCK_PRESETS, MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
+import { MockHome, MockToast, useMockTodayLog, useMockPresets } from '../_lib/mock-home';
+import { PresetManagerSheet } from '../_lib/preset-manager';
+import { MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
 
 type Mode = 'home' | 'open' | 'custom' | 'photo' | 'recent';
 
 export default function FabPage() {
   const { log, addEntry } = useMockTodayLog();
+  const { presets, addPreset, updatePreset, deletePreset } = useMockPresets();
   const [mode, setMode] = useState<Mode>('home');
+  const [manageOpen, setManageOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   function record(name: string, kcal: number) {
@@ -57,15 +60,24 @@ export default function FabPage() {
         {/* Sub pages — 模擬 push 一層，但用半屏 modal 從右滑入 */}
         {mode === 'custom' && (
           <SubPage title="自定義菜單" onBack={() => setMode('home')}>
-            <div className="grid grid-cols-2 gap-2.5 p-5">
-              {MOCK_PRESETS.map((p) => (
+            <div className="flex items-center justify-between px-5 pt-3 pb-2">
+              <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono">{presets.length} 個菜單</p>
+              <button
+                onClick={() => { setMode('home'); setManageOpen(true); }}
+                className="text-[11px] text-accent font-mono uppercase tracking-wider active:scale-95"
+              >
+                ⚙ 管理
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5 px-5 pb-5">
+              {presets.map((p) => (
                 <button
                   key={p.id}
                   onClick={() => record(p.name, p.kcal)}
                   className="bg-surface border border-hairline rounded-xl p-4 text-left hover:border-hairline-strong active:scale-[0.98] transition-all"
                 >
                   <p className="text-[14px] text-text font-medium truncate">{p.name}</p>
-                  <p className="text-[18px] font-mono text-accent tabular mt-2">{p.kcal}<span className="text-[10px] text-text-3 ml-1">kcal</span></p>
+                  <p className="text-[18px] font-mono text-accent tabular mt-2">{Math.round(p.kcal)}<span className="text-[10px] text-text-3 ml-1">kcal</span></p>
                 </button>
               ))}
             </div>
@@ -106,6 +118,15 @@ export default function FabPage() {
         )}
 
         <MockToast text={toast} />
+
+        <PresetManagerSheet
+          open={manageOpen}
+          onClose={() => setManageOpen(false)}
+          presets={presets}
+          onAdd={addPreset}
+          onUpdate={updatePreset}
+          onDelete={deletePreset}
+        />
       </div>
     </PrototypeShell>
   );
