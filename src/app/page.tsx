@@ -5,6 +5,10 @@ import { HomeContent } from './home-content';
 import { SetupForm } from '@/components/setup-form';
 import type { TodayMeal } from '@/components/today-meals';
 
+// 強制每請求重新渲染：主頁讀 workout_days / 今日 meals 都是「當下狀態」型數據，
+// 不能讓 Vercel edge / RSC payload 緩存（出現過刪了 workout_days 但前端仍顯示已選擇的 bug）。
+export const dynamic = 'force-dynamic';
+
 type ProfileRow = {
   user_id: string;
   preferred_timezone: string | null;

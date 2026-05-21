@@ -59,10 +59,17 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-const { error } = await supa.from('body_metrics').insert(rows);
-if (error) {
-  console.error('insert failed:', error.message);
-  process.exit(1);
+async function main() {
+  const { error } = await supa.from('body_metrics').insert(rows);
+  if (error) {
+    console.error('insert failed:', error.message);
+    process.exit(1);
+  }
+  console.log(`Seeded ${rows.length} body_metrics rows for ${OWNER_UID}.`);
+  console.log('Range:', rows[0]!.measured_at, '→', rows[rows.length - 1]!.measured_at);
 }
-console.log(`Seeded ${rows.length} body_metrics rows for ${OWNER_UID}.`);
-console.log('Range:', rows[0]!.measured_at, '→', rows[rows.length - 1]!.measured_at);
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
