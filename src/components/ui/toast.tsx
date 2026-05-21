@@ -105,9 +105,21 @@ function ToastBubble({ item, onClose }: { item: ToastItem; onClose: () => void }
     startY.current = null;
   }
 
-  // closing 動畫優先；正在拖動時也用拖動 transform；其他用入場動畫
+  // closing 用 transition 接力（從當前 dragY 位置丝滑滑出），不走 keyframe，
+  // 否則 ff-toast-out 的 from: translateY(0) 會把當前 dragY transform 瞬間歸零再播放，
+  // 視覺上「跳一下」。closing 期間 keep dragY，給 transform 設最終目標讓 transition 接管。
+  const inlineTransform = item.closing
+    ? 'translateY(-120px) scale(0.97)'
+    : dragging
+      ? `translateY(${dragY}px)`
+      : undefined;
+  const inlineTransition = dragging
+    ? 'none'
+    : item.closing
+      ? 'transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.22s ease-out'
+      : 'transform 0.18s ease-out';
   const animation = item.closing
-    ? 'ff-toast-out 0.2s ease-out forwards'
+    ? undefined
     : (dragging ? 'none' : 'ff-toast-in 0.32s var(--ease-spring) both');
 
   return (
@@ -120,8 +132,9 @@ function ToastBubble({ item, onClose }: { item: ToastItem; onClose: () => void }
       onTouchCancel={onTouchEnd}
       style={{
         animation,
-        transform: dragging ? `translateY(${dragY}px)` : undefined,
-        transition: dragging ? 'none' : 'transform 0.18s ease-out',
+        transform: inlineTransform,
+        opacity: item.closing ? 0 : 1,
+        transition: inlineTransition,
       }}
     >
       <span className={`w-1 self-stretch rounded-full ${stripe}`} />

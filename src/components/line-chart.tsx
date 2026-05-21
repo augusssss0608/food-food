@@ -257,7 +257,7 @@ export function LineChart({
               key={`${p.date}-${i}`}
               cx={xPos(i)}
               cy={yPos(p.value)}
-              r={i === points.length - 1 ? 3 : 1.6}
+              r={2.2}
               fill={color}
             />
           ))}
