@@ -42,7 +42,7 @@
     "eslint-config-next": "15.5.18",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
-    "supabase": "^2.100.1",
+    "supabase": "^2.101.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.6"

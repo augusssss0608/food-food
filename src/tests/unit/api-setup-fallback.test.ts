@@ -74,6 +74,23 @@ describe('POST /api/setup AI fallback', () => {
     const upsertedRow = upsertMock.mock.calls[0]![0];
     expect(upsertedRow.kcal_workout_day).toBe(2500);
     expect(upsertedRow.targets_source).toBe('ai_initial');
+    // ff_tz cookie 被寫入：RPC snapshot loader 的 fast path
+    const cookieHeader = r.headers.get('set-cookie') ?? '';
+    expect(cookieHeader).toMatch(/ff_tz=Asia%2FTokyo|ff_tz=Asia\/Tokyo/);
+    expect(cookieHeader).toMatch(/HttpOnly/i);
+    expect(cookieHeader).toMatch(/SameSite=lax/i);
+  });
+
+  it('skips ff_tz cookie when preferred_timezone is invalid IANA', async () => {
+    providerMock.computeInitialTargets.mockResolvedValueOnce({
+      kcal_workout_day: 2500, kcal_rest_day: 2050, protein_g: 145,
+      carb_workout_day: 290, carb_rest_day: 210, fat_g: 65, fiber_g: 30,
+      _meta: { provider: 'anthropic_api', durationMs: 100, attempts: 1, costCents: 5 },
+    });
+    const r = await POST(buildReq({ ...validBody, preferred_timezone: 'Not/Real_TZ' }));
+    expect(r.status).toBe(200);
+    const cookieHeader = r.headers.get('set-cookie') ?? '';
+    expect(cookieHeader).not.toMatch(/ff_tz=/);
   });
 
   it('falls back to fallbackTdee when provider throws AIError(schema_invalid)', async () => {

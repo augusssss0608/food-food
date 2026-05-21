@@ -1,33 +1,17 @@
 import { redirect } from 'next/navigation';
 import { DateTime } from 'luxon';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { todayUtcRange } from '@/lib/timezone';
+import { loadHistoryMealsSnapshot } from '@/lib/history-meals-snapshot';
 import { PageShell } from '@/components/ui/page-shell';
 import { PageHeader } from '@/components/page-header';
 import { Card } from '@/components/ui/card';
 import { HistoryDateNav } from '@/components/history-date-nav';
 
-type Meal = {
-  id: string;
-  ate_at: string;
-  source: 'preset' | 'photo_ai' | 'manual';
-  dish_name: string | null;
-  kcal: number | null;
-};
-
-type DailyAdvice = {
-  content_md: string;
-  generated_at: string | null;
-  stale: boolean | null;
-};
-
-const SOURCE_LABEL: Record<Meal['source'], string> = {
+const SOURCE_LABEL = {
   preset: 'preset',
   photo_ai: 'ai',
   manual: '手動',
-};
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+} as const;
 
 export default async function HistoryMealsPage({
   searchParams,
@@ -39,63 +23,20 @@ export default async function HistoryMealsPage({
   const supa = await createSupabaseServerClient();
   const { data: claims, error: claimsError } = await supa.auth.getClaims();
   if (claimsError || !claims?.claims?.sub) redirect('/login');
-  const userId = claims.claims.sub as string;
 
-  const { data: profile, error: profileError } = await supa
-    .from('profiles')
-    .select('preferred_timezone')
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (profileError) throw profileError;
-  const tz = (profile?.preferred_timezone ?? null) as string | null;
-  const { timezone, localDate: todayLocalDate } = todayUtcRange(tz);
+  const snapshot = await loadHistoryMealsSnapshot(supa, params.date ?? null);
+  const { timezone, date, todayDate, meals, advice } = snapshot;
 
-  // 解析 date 查詢參數
-  let date = params.date && DATE_RE.test(params.date) ? params.date : todayLocalDate;
-  let dateDT = DateTime.fromISO(date, { zone: timezone });
-  if (!dateDT.isValid) {
-    date = todayLocalDate;
-    dateDT = DateTime.fromISO(date, { zone: timezone });
-  }
-  // 不允許選未來：超過今天的 date 強制 clamp 回今天
-  if (date > todayLocalDate) {
-    date = todayLocalDate;
-    dateDT = DateTime.fromISO(date, { zone: timezone });
-  }
-
-  const dayStart = dateDT.startOf('day');
-  const startUtc = dayStart.toUTC().toISO()!;
-  const endExclusiveUtc = dayStart.plus({ days: 1 }).toUTC().toISO()!;
-
-  const [mealsRes, adviceRes] = await Promise.all([
-    supa
-      .from('meals')
-      .select('id, ate_at, source, dish_name, kcal')
-      .eq('user_id', userId)
-      .gte('ate_at', startUtc)
-      .lt('ate_at', endExclusiveUtc)
-      .order('ate_at', { ascending: true }),
-    supa
-      .from('advice')
-      .select('content_md, generated_at, stale')
-      .eq('user_id', userId)
-      .eq('kind', 'daily')
-      .eq('period_start', date)
-      .maybeSingle(),
-  ]);
-  if (mealsRes.error) throw mealsRes.error;
-  if (adviceRes.error) throw adviceRes.error;
-
-  const meals = (mealsRes.data ?? []) as Meal[];
-  const advice = (adviceRes.data ?? null) as DailyAdvice | null;
-  const totalKcal = Math.round(meals.reduce((s, m) => s + (m.kcal ?? 0), 0));
-
+  // 用 RPC 返回的 date/todayDate/timezone 在純字串計算層算出 UI 需要的鄰近日期。
+  const dateDT = DateTime.fromISO(date, { zone: timezone });
   const prevDate = dateDT.minus({ days: 1 }).toISODate()!;
   const nextDate = dateDT.plus({ days: 1 }).toISODate()!;
-  const isToday = date === todayLocalDate;
+  const isToday = date === todayDate;
   const dateLabel = dateDT.setLocale('zh-TW').toLocaleString({
     month: 'long', day: 'numeric', weekday: 'long',
   });
+
+  const totalKcal = Math.round(meals.reduce((s, m) => s + (m.kcal ?? 0), 0));
 
   return (
     <PageShell>
@@ -107,7 +48,7 @@ export default async function HistoryMealsPage({
       <HistoryDateNav
         date={date}
         dateLabel={dateLabel}
-        todayDate={todayLocalDate}
+        todayDate={todayDate}
         prevDate={prevDate}
         nextDate={nextDate}
         isToday={isToday}

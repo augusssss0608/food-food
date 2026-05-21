@@ -1,5 +1,6 @@
+import { cookies } from 'next/headers';
+import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { todayUtcRange } from '@/lib/timezone';
 import type { TodayMeal } from '@/components/today-meals';
 
 /**
@@ -31,91 +32,63 @@ export type HomeSnapshot = {
   };
 };
 
-type ProfileRow = {
-  user_id: string;
-  preferred_timezone: string | null;
-  kcal_workout_day: number | null;
-  kcal_rest_day: number | null;
-  protein_g: number | null;
-  carb_workout_day: number | null;
-  carb_rest_day: number | null;
-  fat_g: number | null;
-};
+const NutrientsSchema = z.object({
+  kcal: z.number(),
+  protein_g: z.number(),
+  carb_g: z.number(),
+  fat_g: z.number(),
+}).strict();
+
+const TodayMealSchema = z.object({
+  id: z.string(),
+  ate_at: z.string(),
+  source: z.enum(['preset', 'photo_ai', 'manual']),
+  dish_name: z.string().nullable(),
+  kcal: z.number().nullable(),
+  protein_g: z.number().nullable(),
+  carb_g: z.number().nullable(),
+  fat_g: z.number().nullable(),
+  fiber_g: z.number().nullable(),
+  satiety: z.number().nullable(),
+}).strict();
+
+const HomeSnapshotSchema = z.object({
+  meals: z.array(TodayMealSchema),
+  timezone: z.string(),
+  todayDate: z.string(),
+  workoutMarked: z.boolean(),
+  isWorkoutDay: z.boolean(),
+  targets: NutrientsSchema,
+  targetOptions: z.object({
+    workout: NutrientsSchema,
+    rest: NutrientsSchema,
+    empty: NutrientsSchema,
+  }).strict(),
+}).strict();
+
+async function readCookieTz(): Promise<string | null> {
+  try {
+    return (await cookies()).get('ff_tz')?.value ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 拿主頁 snapshot。沒 profile 返 null，呼叫方自行決定 redirect 到 setup。
- * 任何 DB 錯誤直接 throw（不靜默 fallback）。
+ * 任何 DB / shape 錯誤直接 throw（不靜默 fallback）。
+ *
+ * 走 PostgreSQL RPC load_home_snapshot，一次拿 profile + meals + workout_days，
+ * 從 2 個 HTTP RT 壓到 1 個。
  */
 export async function loadHomeSnapshot(
   supa: SupabaseClient,
-  userId: string,
+  _userId: string,
 ): Promise<HomeSnapshot | null> {
-  const { data: profile, error: profileError } = await supa
-    .from('profiles')
-    .select(
-      'user_id, preferred_timezone, kcal_workout_day, kcal_rest_day, protein_g, carb_workout_day, carb_rest_day, fat_g',
-    )
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (profileError) throw profileError;
-  if (!profile) return null;
-
-  const p = profile as ProfileRow;
-  const { timezone, startUtc, endExclusiveUtc, localDate } = todayUtcRange(p.preferred_timezone);
-
-  // 並行查 meals + workout_days（無依賴）
-  const [mealsResult, workoutResult] = await Promise.all([
-    supa
-      .from('meals')
-      .select('id, ate_at, source, dish_name, kcal, protein_g, carb_g, fat_g, fiber_g, satiety')
-      .eq('user_id', userId)
-      .gte('ate_at', startUtc)
-      .lt('ate_at', endExclusiveUtc)
-      .order('ate_at', { ascending: false }),
-    supa
-      .from('workout_days')
-      .select('is_workout')
-      .eq('user_id', userId)
-      .eq('date', localDate)
-      .maybeSingle(),
-  ]);
-  if (mealsResult.error) throw mealsResult.error;
-  if (workoutResult.error) throw workoutResult.error;
-
-  const meals = (mealsResult.data ?? []) as TodayMeal[];
-  const workoutRow = workoutResult.data;
-  const workoutMarked = workoutRow != null;
-  const isWorkoutDay = (workoutRow?.is_workout ?? false) as boolean;
-
-  const workoutTargets: Nutrients = {
-    kcal: p.kcal_workout_day ?? 0,
-    protein_g: p.protein_g ?? 0,
-    carb_g: p.carb_workout_day ?? 0,
-    fat_g: p.fat_g ?? 0,
-  };
-  const restTargets: Nutrients = {
-    kcal: p.kcal_rest_day ?? 0,
-    protein_g: p.protein_g ?? 0,
-    carb_g: p.carb_rest_day ?? 0,
-    fat_g: p.fat_g ?? 0,
-  };
-  const emptyTargets: Nutrients = { kcal: 0, protein_g: 0, carb_g: 0, fat_g: 0 };
-
-  const targets: Nutrients = !workoutMarked
-    ? emptyTargets
-    : isWorkoutDay ? workoutTargets : restTargets;
-
-  return {
-    meals,
-    timezone,
-    todayDate: localDate,
-    workoutMarked,
-    isWorkoutDay,
-    targets,
-    targetOptions: {
-      workout: workoutTargets,
-      rest: restTargets,
-      empty: emptyTargets,
-    },
-  };
+  const { data, error } = await supa.rpc('load_home_snapshot', {
+    p_tz: await readCookieTz(),
+  });
+  if (error) throw error;
+  if (data == null) return null;
+  return HomeSnapshotSchema.parse(data) as HomeSnapshot;
 }

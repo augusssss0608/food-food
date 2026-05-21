@@ -8,6 +8,15 @@ import { fallbackTdee } from '@/lib/ai-provider/fallback-tdee';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { writeAppError } from '@/lib/errors/app-errors';
 
+function isValidIanaTz(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const Body = z.object({
   height_cm: z.number().int().min(80).max(250),
   current_weight_kg: z.number().min(20).max(300),
@@ -66,7 +75,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'profile save failed' }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, targets });
+    const res = NextResponse.json({ ok: true, targets });
+    // ff_tz cookie 是 RPC snapshot loader 的 fast path：有就跳過 RPC 內部 profile.preferred_timezone
+    // 查詢，無也不影響正確性（RPC 內部會兜底）。invalid tz 跳過寫 cookie，不阻擋整個 setup。
+    if (isValidIanaTz(body.preferred_timezone)) {
+      res.cookies.set('ff_tz', body.preferred_timezone, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 60 * 24 * 365,
+        path: '/',
+      });
+    }
+    return res;
   } catch (e: unknown) {
     if (e instanceof CsrfError) return new NextResponse('forbidden', { status: 403 });
     if (e instanceof AuthError) return new NextResponse('unauthorized', { status: 401 });
