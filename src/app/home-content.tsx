@@ -59,6 +59,14 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
   const data = snapshot!;
   const { meals, timezone, todayDate, isWorkoutDay, workoutMarked, targets } = data;
 
+  // SWR 細節：fallbackData 只填 hook returned data，**不寫入 cache**。
+  // 後續 mutate((prev) => ...) 收到的 prev 來自 cache（undefined），不是 fallbackData。
+  // mount 後立即把 initialSnapshot seed 進 cache，讓後續 patch 的 prev 永遠是 truthy。
+  // 為什麼仍要 patcher 內 `prev ?? data` 兜底：用戶極快點擊時可能比 seed effect 早跑。
+  useEffect(() => {
+    mutate(initialSnapshot, { revalidate: false });
+  }, [initialSnapshot, mutate]);
+
   const [mealPreview, setMealPreview] = useState<MealPreview | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [draftCount, setDraftCount] = useState(0);
@@ -114,22 +122,30 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
     return () => window.removeEventListener('online', tick);
   }, [userId, refreshDraftCount, mutate]);
 
-  // ============ 統一的 SWR cache patcher（useCallback 讓 deps 顯式追蹤）============
+  // ============ 統一的 SWR cache patcher ============
+  // base = prev ?? data：cache 未 seed 時退化用 displayed data（initialSnapshot），
+  // 保證 patch 永遠基於最新可見快照。data 變化 → patcher rebuild → onMealDeleted/Updated
+  // 也跟著 rebuild，傳遞到子層的 identity 會變，這是可接受成本（避免錯版本 patch）
   const patchMeals = useCallback((updater: (prev: TodayMeal[]) => TodayMeal[]) => {
-    mutate((prev) => prev ? { ...prev, meals: updater(prev.meals) } : prev, { revalidate: false });
-  }, [mutate]);
+    mutate((prev) => {
+      const base = prev ?? data;
+      if (!base) return base;
+      return { ...base, meals: updater(base.meals) };
+    }, { revalidate: false });
+  }, [mutate, data]);
 
   const patchWorkout = useCallback((isWorkout: boolean) => {
     mutate((prev) => {
-      if (!prev) return prev;
+      const base = prev ?? data;
+      if (!base) return base;
       return {
-        ...prev,
+        ...base,
         workoutMarked: true,
         isWorkoutDay: isWorkout,
-        targets: isWorkout ? prev.targetOptions.workout : prev.targetOptions.rest,
+        targets: isWorkout ? base.targetOptions.workout : base.targetOptions.rest,
       };
     }, { revalidate: false });
-  }, [mutate]);
+  }, [mutate, data]);
 
   // ============ workout day 切換（lift up from WorkoutDayToggle + TodaySummary）============
   async function setWorkoutDay(isWorkout: boolean): Promise<boolean> {
