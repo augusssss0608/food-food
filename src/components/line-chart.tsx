@@ -105,7 +105,6 @@ export function LineChart({
 
   const last = points[points.length - 1]!;
   const first = points[0]!;
-  const avgY = values.reduce((s, v) => s + v, 0) / values.length;
 
   // 7 天前最接近的點：用 luxon 找 <= last.date - 7 天 的最後一筆
   const sevenDaysAgoTs = DateTime.fromISO(last.date).minus({ days: 7 }).toMillis();
@@ -328,24 +327,16 @@ export function LineChart({
         </svg>
       </div>
 
-      {/* 兩行 stats：上排當前 / 7d / 全期變化，下排 min / avg / max */}
-      <div className="mt-2 space-y-1">
-        <div className="flex justify-between items-baseline text-[11px] font-mono tabular">
-          <span className="text-text font-medium" style={{ color }}>
-            {last.value.toFixed(1)}<span className="text-[9px] text-text-3 ml-0.5">{unit}</span>
-          </span>
-          <span style={{ color: delta7d.color }}>
-            7d {delta7d.label}
-          </span>
-          <span style={{ color: deltaAll.color }}>
-            全期 {deltaAll.label}
-          </span>
-        </div>
-        <div className="flex justify-between text-[10px] text-text-3 font-mono tabular">
-          <span>min {minY.toFixed(1)}{unit}</span>
-          <span>avg {avgY.toFixed(1)}{unit}</span>
-          <span>max {maxY.toFixed(1)}{unit}</span>
-        </div>
+      <div className="mt-2 flex justify-between items-baseline text-[11px] font-mono tabular">
+        <span className="font-medium" style={{ color }}>
+          {last.value.toFixed(1)}<span className="text-[9px] text-text-3 ml-0.5">{unit}</span>
+        </span>
+        <span style={{ color: delta7d.color }}>
+          7d {delta7d.label}
+        </span>
+        <span style={{ color: deltaAll.color }}>
+          全期 {deltaAll.label}
+        </span>
       </div>
     </div>
   );
