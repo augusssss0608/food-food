@@ -19,8 +19,8 @@ type DragState = {
   y: number;
 };
 
-const LONG_PRESS_MS = 350;
-const MOVE_CANCEL_PX = 10;
+const LONG_PRESS_MS = 220;  // 縮短長按門檻讓「按住-拖」更跟手
+const MOVE_CANCEL_PX = 12;  // 允許輕微抖動仍進 drag
 
 type FormState = 'closed' | 'add' | { kind: 'edit'; id: string };
 
@@ -170,7 +170,7 @@ export default function StampPage() {
               </div>
             </div>
             <p className="text-[10px] text-text-4 font-mono mb-3">
-              {editMode ? '✏️ 編輯模式：點印章編輯、點紅叉刪除' : 'ⓘ 長按印章 0.35 秒進入拖曳模式'}
+              {editMode ? '✏️ 編輯模式：點印章編輯、點紅叉刪除' : 'ⓘ 按住印章 0.2 秒進拖曳；短按 / 上下滑可滾動列表'}
             </p>
             <div className="grid grid-cols-3 gap-3">
               {presets.map((p, i) => {
