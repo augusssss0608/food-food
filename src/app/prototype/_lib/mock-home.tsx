@@ -1,23 +1,36 @@
 'use client';
-import { type ReactNode } from 'react';
-import { MOCK_TODAY_LOG } from './mock-presets';
+import { useEffect, useState, type ReactNode } from 'react';
+import { MOCK_TODAY_LOG, type TodayLogEntry } from './mock-presets';
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 /**
- * 共用的「假主頁」骨架：頂部安全區 + page header（含右上 slot 給 variant 注入 + 按鈕）
- * + 今日摘要 + 今日記錄。讓需要主屏環境的 variant（彈窗 / FAB / shelf）能呈現真實感。
+ * 提供一個 hook 給 variant 管 today log state，模擬「真實主頁」。
+ * variant 內呼 addEntry 即可讓 MockHome 真的多一筆。
+ */
+export function useMockTodayLog() {
+  const [log, setLog] = useState<TodayLogEntry[]>(MOCK_TODAY_LOG);
+  function addEntry(name: string, kcal: number) {
+    setLog((prev) => [...prev, { id: `l-${Date.now()}-${Math.random()}`, ate_at: new Date().toISOString(), dish_name: name, kcal }]);
+  }
+  return { log, addEntry };
+}
+
+/**
+ * 共用的「假主頁」骨架。
  */
 export function MockHome({
+  log,
   rightAction,
   todayLogExtraSlot,
   scrollPaddingBottom = 16,
 }: {
+  log: TodayLogEntry[];
   rightAction?: ReactNode;
   todayLogExtraSlot?: ReactNode;
   scrollPaddingBottom?: number;
 }) {
-  const total = MOCK_TODAY_LOG.reduce((s, m) => s + m.kcal, 0);
+  const total = log.reduce((s, m) => s + m.kcal, 0);
   return (
     <div
       className="h-full overflow-y-auto"
@@ -40,9 +53,9 @@ export function MockHome({
         </section>
 
         <section className="mb-5">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono mb-3">今日紀錄</p>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono mb-3">今日紀錄 · {log.length} 筆</p>
           <ul className="space-y-1.5">
-            {MOCK_TODAY_LOG.map((m) => (
+            {log.map((m) => (
               <li
                 key={m.id}
                 className="bg-surface border border-hairline rounded-lg px-3.5 py-2.5 flex items-center justify-between"
@@ -63,20 +76,35 @@ export function MockHome({
 }
 
 /**
- * 一個半透明遮罩 + 從底升起的半彈窗（給 v1/v2 用）。
- * 自己處理 ESC / overlay click 關閉 + 動畫。
+ * 半透明遮罩 + 從底升起的半彈窗。
+ * - body 鎖滾
+ * - ESC / overlay 點擊關閉
+ * - 內容區可滾動
  */
 export function MockSheet({
   open,
   onClose,
   title,
   children,
+  minHeight = '50vh',
 }: {
   open: boolean;
   onClose: () => void;
   title?: string;
   children: ReactNode;
+  minHeight?: string;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [open, onClose]);
+
   return (
     <>
       <div
@@ -98,18 +126,16 @@ export function MockSheet({
           borderTopRightRadius: 20,
           borderTop: '1px solid var(--color-hairline)',
           maxHeight: 'calc(100dvh - 4rem)',
-          minHeight: '50vh',
+          minHeight,
           transform: open ? 'translateY(0)' : 'translateY(100%)',
           transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)',
           paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)',
         }}
       >
-        {title && (
-          <div className="flex-shrink-0 px-5 h-12 flex items-center justify-center border-b border-hairline">
-            <div className="w-10 h-1 bg-text-3/40 rounded-full absolute top-2 left-1/2 -translate-x-1/2" />
-            <span className="text-[11px] uppercase tracking-[0.2em] text-text-3 font-medium">{title}</span>
-          </div>
-        )}
+        <div className="relative flex-shrink-0 px-5 h-12 flex items-center justify-center border-b border-hairline">
+          <div className="w-10 h-1 bg-text-3/40 rounded-full absolute top-2 left-1/2 -translate-x-1/2" />
+          {title && <span className="text-[11px] uppercase tracking-[0.2em] text-text-3 font-medium mt-2">{title}</span>}
+        </div>
         <div className="flex-1 overflow-y-auto">{children}</div>
       </aside>
     </>
@@ -132,5 +158,20 @@ export function PlusButton({ onClick }: { onClick: () => void }) {
         <line x1="5" y1="12" x2="19" y2="12" />
       </svg>
     </button>
+  );
+}
+
+/**
+ * 統一的 toast：固定位置 + 自動消失。
+ */
+export function MockToast({ text }: { text: string | null }) {
+  if (!text) return null;
+  return (
+    <div
+      className="fixed left-1/2 -translate-x-1/2 bg-accent text-accent-ink px-5 py-2.5 rounded-full text-[13px] font-medium shadow-lg z-[200] animate-pulse"
+      style={{ top: 'calc(env(safe-area-inset-top) + 60px)' }}
+    >
+      ✓ {text}
+    </div>
   );
 }

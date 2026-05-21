@@ -1,7 +1,7 @@
 'use client';
 import { useRef, useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
-import { MockHome, MockSheet, PlusButton } from '../_lib/mock-home';
+import { MockHome, MockSheet, PlusButton, MockToast, useMockTodayLog } from '../_lib/mock-home';
 import { MOCK_PRESETS, MOCK_RECENT_PHOTO } from '../_lib/mock-presets';
 
 type Tab = 'custom' | 'recent' | 'photo';
@@ -12,15 +12,17 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
 ];
 
 export default function TabsPage() {
+  const { log, addEntry } = useMockTodayLog();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>('custom');
-  const [recordedName, setRecordedName] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const startX = useRef<number | null>(null);
 
-  function record(name: string) {
-    setRecordedName(name);
+  function record(name: string, kcal: number) {
+    addEntry(name, kcal);
+    setToast(`已記錄「${name}」`);
+    setTimeout(() => setToast(null), 1800);
     setOpen(false);
-    setTimeout(() => setRecordedName(null), 1500);
   }
 
   function onTouchStart(e: React.TouchEvent) {
@@ -39,68 +41,77 @@ export default function TabsPage() {
 
   return (
     <PrototypeShell title="2. 底部 Tab 切換">
-      <MockHome rightAction={<PlusButton onClick={() => setOpen(true)} />} />
+      <MockHome log={log} rightAction={<PlusButton onClick={() => setOpen(true)} />} />
 
-      <MockSheet open={open} onClose={() => setOpen(false)} title="新增餐">
+      <MockSheet open={open} onClose={() => setOpen(false)} title="新增餐" minHeight="75vh">
         <div className="h-full flex flex-col" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-          <div className="flex-1 overflow-hidden relative">
+          <div className="flex-1 relative overflow-hidden">
+            {/* 用絕對定位避免 transform 影響 flex 高度計算 */}
             <div
               className="absolute inset-0 flex transition-transform duration-300 ease-out"
-              style={{ transform: `translateX(-${TABS.findIndex((t) => t.key === tab) * 100}%)`, width: `${TABS.length * 100}%` }}
+              style={{
+                width: `${TABS.length * 100}%`,
+                transform: `translateX(-${TABS.findIndex((t) => t.key === tab) * (100 / TABS.length)}%)`,
+              }}
             >
               {TABS.map((t) => (
-                <div key={t.key} className="w-full flex-shrink-0 overflow-y-auto px-4 py-4" style={{ width: `${100 / TABS.length}%` }}>
-                  {t.key === 'custom' && (
-                    <>
-                      <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono mb-2.5">{MOCK_PRESETS.length} 個菜單</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {MOCK_PRESETS.map((p) => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => record(p.name)}
-                            className="bg-surface border border-hairline rounded-xl p-3.5 text-left hover:border-hairline-strong active:scale-[0.98] transition-all"
-                          >
-                            <p className="text-[13px] text-text font-medium leading-tight truncate">{p.name}</p>
-                            <p className="text-[17px] font-mono text-accent tabular mt-1.5 leading-none">
-                              {p.kcal}<span className="text-[9px] text-text-3 ml-1">kcal</span>
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-
-                  {t.key === 'recent' && (
-                    <>
-                      <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono mb-2.5">近 30 天拍照</p>
-                      <ul className="space-y-1.5">
-                        {MOCK_RECENT_PHOTO.map((m) => (
-                          <li key={m.meal_id}>
+                <div key={t.key} className="overflow-y-auto" style={{ width: `${100 / TABS.length}%` }}>
+                  <div className="px-4 py-4">
+                    {t.key === 'custom' && (
+                      <>
+                        <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono mb-2.5">{MOCK_PRESETS.length} 個菜單</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {MOCK_PRESETS.map((p) => (
                             <button
-                              onClick={() => record(m.dish_name)}
-                              className="w-full bg-surface border border-hairline rounded-lg px-3.5 py-2.5 flex items-center justify-between hover:border-hairline-strong active:scale-[0.99] transition-all"
+                              key={p.id}
+                              type="button"
+                              onClick={() => record(p.name, p.kcal)}
+                              className="bg-surface border border-hairline rounded-xl p-3.5 text-left hover:border-hairline-strong active:scale-[0.98] transition-all"
                             >
-                              <span className="text-[13px] text-text font-medium truncate">{m.dish_name}</span>
-                              <span className="text-[12px] font-mono text-accent tabular">{m.kcal}<span className="text-[9px] text-text-3 ml-0.5">kcal</span></span>
+                              <p className="text-[13px] text-text font-medium leading-tight truncate">{p.name}</p>
+                              <p className="text-[17px] font-mono text-accent tabular mt-1.5 leading-none">
+                                {p.kcal}<span className="text-[9px] text-text-3 ml-1">kcal</span>
+                              </p>
                             </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
+                          ))}
+                        </div>
+                      </>
+                    )}
 
-                  {t.key === 'photo' && (
-                    <div className="h-full flex items-center justify-center pt-2">
-                      <button className="w-full aspect-square max-w-[280px] border-2 border-dashed border-hairline rounded-2xl flex flex-col items-center justify-center gap-3 text-text-3 hover:border-accent/60 hover:text-accent active:scale-95 transition-all">
-                        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                          <circle cx="12" cy="13" r="4" />
-                        </svg>
-                        <span className="text-[13px] font-mono uppercase tracking-wider">拍照識別</span>
-                      </button>
-                    </div>
-                  )}
+                    {t.key === 'recent' && (
+                      <>
+                        <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono mb-2.5">近 30 天拍照</p>
+                        <ul className="space-y-1.5">
+                          {MOCK_RECENT_PHOTO.map((m) => (
+                            <li key={m.meal_id}>
+                              <button
+                                onClick={() => record(m.dish_name, m.kcal)}
+                                className="w-full bg-surface border border-hairline rounded-lg px-3.5 py-2.5 flex items-center justify-between hover:border-hairline-strong active:scale-[0.99] transition-all"
+                              >
+                                <span className="text-[13px] text-text font-medium truncate">{m.dish_name}</span>
+                                <span className="text-[12px] font-mono text-accent tabular">{m.kcal}<span className="text-[9px] text-text-3 ml-0.5">kcal</span></span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+
+                    {t.key === 'photo' && (
+                      <div className="flex items-center justify-center pt-4">
+                        <button
+                          onClick={() => record('拍照識別餐', 420)}
+                          className="w-full aspect-square max-w-[260px] border-2 border-dashed border-hairline rounded-2xl flex flex-col items-center justify-center gap-3 text-text-3 hover:border-accent/60 hover:text-accent active:scale-95 transition-all"
+                        >
+                          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                            <circle cx="12" cy="13" r="4" />
+                          </svg>
+                          <span className="text-[13px] font-mono uppercase tracking-wider">點擊模擬識別</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -115,7 +126,7 @@ export default function TabsPage() {
                   type="button"
                   onClick={() => setTab(t.key)}
                   className={[
-                    'h-13 py-2 flex flex-col items-center justify-center gap-0.5 transition-colors',
+                    'py-2.5 flex flex-col items-center justify-center gap-0.5 transition-colors',
                     active ? 'text-accent' : 'text-text-3 hover:text-text-2',
                   ].join(' ')}
                 >
@@ -128,11 +139,7 @@ export default function TabsPage() {
         </div>
       </MockSheet>
 
-      {recordedName && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-accent text-accent-ink px-5 py-2.5 rounded-full text-[13px] font-medium shadow-lg z-[80]">
-          已記錄「{recordedName}」
-        </div>
-      )}
+      <MockToast text={toast} />
     </PrototypeShell>
   );
 }

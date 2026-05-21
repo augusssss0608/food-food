@@ -17,11 +17,9 @@ const VARIANTS: { slug: string; title: string; tagline: string; desc: string }[]
     desc: '主頁底部常駐一條 peek，短拉露出常用 / 長拉打開完整菜單庫。' },
   { slug: 'v5-ledger', title: '5. Today Ledger', tagline: 'Inline insert into diary',
     desc: '取消 + 按鈕，「今日已記錄」末尾就是輸入入口。MyFitnessPal Quick Add 心智。' },
-  { slug: 'v6-deck', title: '6. Swipe Deck', tagline: 'Tinder for meals',
-    desc: '全屏卡牌一張一張滑，右滑記錄 / 左滑跳過 / 上滑拍照。' },
-  { slug: 'v7-dial', title: '7. Macro Dial', tagline: 'iPod click wheel',
-    desc: '拇指旋轉切餐，中心大卡顯示完整 macro，每過一項輕震。' },
-  { slug: 'v8-stamp', title: '8. Meal Stamp', tagline: 'Drag & drop ritual',
+  { slug: 'v7-dial', title: '6. Macro Dial', tagline: 'iPod click wheel',
+    desc: '主頁 + → 拇指旋轉切餐，中心大卡顯示完整 macro，每過一項輕震。' },
+  { slug: 'v8-stamp', title: '7. Meal Stamp', tagline: 'Drag & drop ritual',
     desc: '每個菜單是一枚印章，拖到今日區放手即記錄，儀式感強。' },
 ];
 
