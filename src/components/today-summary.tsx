@@ -76,15 +76,20 @@ export function TodaySummary({
 
   return (
     <section className="mb-7">
-      <div className="flex items-baseline justify-between mb-3">
+      <div className="flex items-center justify-between mb-3">
         <SectionLabel>今日摘要</SectionLabel>
         {workoutMarked && (
           <button
             type="button"
             onClick={() => setConfirmOpen(true)}
-            className="text-[10px] uppercase tracking-[0.18em] text-text-3 font-mono hover:text-text active:scale-95 transition-all px-1 -mr-1"
+            aria-label={`切換到${otherLabel}`}
+            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-text-2 font-mono bg-surface-2 border border-hairline hover:border-hairline-strong hover:text-text active:scale-95 transition-all px-2.5 py-1 rounded-md"
           >
             {currentLabel}
+            {/* 雙向箭頭：暗示「可切換」 */}
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 16l-4-4 4-4M3 12h13M17 8l4 4-4 4M21 12H8" />
+            </svg>
           </button>
         )}
       </div>

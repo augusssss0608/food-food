@@ -86,10 +86,10 @@ export default async function HistoryBodyPage() {
             return (
               <Card key={c.key} className="p-4">
                 <div className="flex items-baseline justify-between mb-3">
-                  <p className="text-[12px] uppercase tracking-[0.18em] text-text-3 font-mono">
+                  <p className="text-[12px] uppercase tracking-[0.18em] text-text-2 font-mono">
                     {c.label}
                   </p>
-                  <p className="text-[10px] font-mono text-text-4 tabular">
+                  <p className="text-[10px] font-mono text-text-3 tabular">
                     {c.unit ? `單位 ${c.unit}` : ''}
                   </p>
                 </div>

@@ -10,6 +10,8 @@ import { Spinner } from '@/components/ui/spinner';
  * 主頁右上「+」按鈕觸發的「新增餐」面板（slide up from bottom）。
  * 包 preset 網格 + 拍餐 input + AI 識別預覽。
  * 業務邏輯（fetch / 草稿 / refresh）由父層 home-content 管，這裡只渲染 UI + 委派事件。
+ *
+ * 飽腹感不在這裡填：吃飽才知道，新增時不該強迫選。要打分到主頁餐點 inline editor 補。
  */
 export function AddMealSheet({
   open,

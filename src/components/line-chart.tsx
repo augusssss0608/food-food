@@ -70,9 +70,9 @@ export function LineChart({
           />
         ))}
       </svg>
-      <div className="flex justify-between text-[10px] text-text-4 font-mono tabular mt-1">
+      <div className="flex justify-between text-[10px] text-text-3 font-mono tabular mt-1">
         <span>min {minY.toFixed(1)}{unit}</span>
-        <span className="text-text-2">最新 {last.value.toFixed(1)}{unit}</span>
+        <span className="text-text font-medium">最新 {last.value.toFixed(1)}{unit}</span>
         <span>max {maxY.toFixed(1)}{unit}</span>
       </div>
     </div>
