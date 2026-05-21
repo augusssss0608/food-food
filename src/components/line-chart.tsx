@@ -192,8 +192,14 @@ export function LineChart({
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
-        className="block"
-        style={{ touchAction: 'pan-y' }}
+        className="block select-none"
+        style={{
+          touchAction: 'pan-y',
+          // iOS 長按關掉系統放大鏡 + 元素 callout (link preview / text loupe)
+          WebkitTouchCallout: 'none',
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
+        }}
         preserveAspectRatio="none"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
