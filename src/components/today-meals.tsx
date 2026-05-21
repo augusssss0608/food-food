@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { SectionLabel } from './ui/card';
 import { MealInlineEditor } from './meal-inline-editor';
 import { useToast } from './ui/toast';
+import { Dialog } from './ui/dialog';
 import { useDeferredRefresh } from './use-deferred-refresh';
 
 export type TodayMeal = {
@@ -107,6 +108,7 @@ function MealRow({
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDelOpen, setConfirmDelOpen] = useState(false);
   const startRef = useRef<{ x: number; y: number; phase: 'pending' | 'horiz' | 'vert' } | null>(null);
 
   // parent 通過 swipedOpen 控制；當其他 row 被打開時 swipedOpen 變 false → 復位
@@ -170,7 +172,10 @@ function MealRow({
     }
   }
 
-  async function handleDelete() {
+  // 點刪除 chip → 先彈 Dialog 確認，避免誤觸不可撤銷操作
+  function askDelete() { setConfirmDelOpen(true); }
+
+  async function performDelete() {
     if (deleting) return;
     setDeleting(true);
     try {
@@ -183,6 +188,7 @@ function MealRow({
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
       toast.success('已刪除', meal.dish_name ?? '未命名');
+      setConfirmDelOpen(false);
       onSwipeClose();
       onCollapseEditor();
       deferredRefresh();
@@ -198,19 +204,23 @@ function MealRow({
 
   return (
     <li className="relative">
-      {/* 後景：左滑時露出的「刪除」按鈕（pointer-events 由 dragX 決定）*/}
+      {/*
+        後景刪除按鈕：chip 風格（inset 4px / 四角圓角），不貼 li 邊。
+        主行 translate(-80) 後按鈕左側留 4px gap，視覺浮在右側。
+        用 inline style 寫 borderRadius，避開 Tailwind v4 任何 locale-aware 邏輯。
+      */}
       <button
         type="button"
-        onClick={handleDelete}
+        onClick={askDelete}
         disabled={deleting}
         aria-label={`刪除 ${meal.dish_name ?? '未命名'}`}
-        className={[
-          'absolute right-0 top-0 bottom-0 bg-danger text-white text-[13px] font-medium',
-          'flex items-center justify-center transition-opacity',
-          rowRounded.includes('rounded-t-xl') ? 'rounded-tr-xl' : 'rounded-r-xl',
-        ].join(' ')}
+        className="absolute bg-danger text-white text-[13px] font-medium flex items-center justify-center transition-opacity active:bg-danger/85"
         style={{
-          width: REVEAL_WIDTH,
+          top: 4,
+          bottom: 4,
+          right: 4,
+          width: REVEAL_WIDTH - 8,
+          borderRadius: 12,
           // 完全收回時禁止點擊（避免遮罩無效命中）
           pointerEvents: dragX < -2 ? 'auto' : 'none',
           opacity: dragX < -2 ? 1 : 0,
@@ -218,6 +228,19 @@ function MealRow({
       >
         {deleting ? '...' : '刪除'}
       </button>
+
+      {/* 刪除確認 Dialog */}
+      <Dialog
+        open={confirmDelOpen}
+        title={`確定刪除「${meal.dish_name ?? '未命名'}」？`}
+        body="此操作不可撤銷"
+        variant="danger"
+        confirmText="刪除"
+        cancelText="取消"
+        onConfirm={performDelete}
+        onCancel={() => setConfirmDelOpen(false)}
+        busy={deleting}
+      />
 
       {/* 前景：主行 + 內聯編輯器（兩者一起跟著 translate）*/}
       <div

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { FITNESS_MEAL_PRESETS } from '@/lib/fitness-meals';
 import { PhotoInput } from '@/components/photo-input';
 import { MealPreviewCard, type MealPreview } from '@/components/meal-preview-card';
@@ -103,6 +103,9 @@ export function AddMealSheet({
   );
 }
 
+const DRAG_CLOSE_THRESHOLD = 100;  // 下滑超過 100px 釋放 = 關閉
+const DRAG_MOVE_THRESHOLD = 8;     // 進入拖動模式的位移門檻
+
 function SheetShell({
   open, onClose, title, children,
 }: {
@@ -111,6 +114,63 @@ function SheetShell({
   title: string;
   children: ReactNode;
 }) {
+  // 下滑收起手勢：用戶要求拿掉視覺橫桿 + 支持向下滑動關閉
+  const [dragY, setDragY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const startRef = useRef<{ y: number; phase: 'pending' | 'drag' | 'scroll' } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  function onTouchStart(e: React.TouchEvent) {
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0]!;
+    startRef.current = { y: t.clientY, phase: 'pending' };
+  }
+  function onTouchMove(e: React.TouchEvent) {
+    if (e.touches.length !== 1 || !startRef.current) return;
+    const t = e.touches[0]!;
+    const dy = t.clientY - startRef.current.y;
+    if (startRef.current.phase === 'pending') {
+      if (Math.abs(dy) <= DRAG_MOVE_THRESHOLD) return;
+      // 向下滑 + 內容已滾到頂 → 進入拖動關閉模式；否則交還滾動
+      const atTop = (scrollRef.current?.scrollTop ?? 0) <= 0;
+      if (dy > 0 && atTop) {
+        startRef.current.phase = 'drag';
+        setDragging(true);
+      } else {
+        startRef.current.phase = 'scroll';
+        return;
+      }
+    }
+    if (startRef.current.phase === 'drag') {
+      // 只跟下滑，向上不動（避免 sheet 被往上拽）
+      setDragY(Math.max(0, dy));
+    }
+  }
+  function onTouchEnd() {
+    const start = startRef.current;
+    startRef.current = null;
+    if (!start) return;
+    if (start.phase === 'drag') {
+      if (dragY > DRAG_CLOSE_THRESHOLD) {
+        (document.activeElement as HTMLElement | null)?.blur?.();
+        onClose();
+        // 動畫結束後再清 dragY，否則 close translate 會跟 dragY 疊加閃一下
+        setTimeout(() => setDragY(0), 300);
+      } else {
+        setDragY(0);
+      }
+    }
+    setDragging(false);
+  }
+
+  // 關閉態 → 從底部滑出；打開態 → translateY(dragY)，dragging 時無 transition 跟手
+  const transform = open
+    ? `translateY(${dragY}px)`
+    : 'translateY(100%)';
+  const transition = dragging
+    ? 'none'
+    : 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)';
+
   return (
     <>
       <div
@@ -128,6 +188,10 @@ function SheetShell({
         role="dialog"
         aria-label={title}
         aria-hidden={!open}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
         style={{
           position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 71,
           background: 'var(--color-surface-2)',
@@ -136,34 +200,29 @@ function SheetShell({
           maxHeight: 'calc(100dvh - 4rem)',
           display: 'flex', flexDirection: 'column',
           paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)',
-          transform: open ? 'translateY(0)' : 'translateY(100%)',
-          transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)',
+          transform,
+          transition,
         }}
       >
-        {/* 頂部拖把區既是視覺 handle，也是真正的 close button（用戶要求去 ✕，但保留可訪問
-          的關閉入口）。命中區 44px 高（iOS 觸碰目標推薦），focus-visible 顯亮邊 */}
-        <button
-          type="button"
-          onClick={() => {
-            // iOS standalone：先 blur 任何 input，避免關閉動畫期間鍵盤殘留
-            (document.activeElement as HTMLElement | null)?.blur?.();
-            onClose();
-          }}
-          aria-label="關閉新增餐面板"
-          className="flex-shrink-0 flex justify-center items-end h-11 pb-2 outline-none focus-visible:bg-surface-3 active:bg-surface-3 transition-colors"
-        >
-          <span
-            style={{
-              width: 36, height: 4,
-              background: 'var(--color-hairline-strong)',
-              borderRadius: 2,
-            }}
-          />
-        </button>
-        <div className="flex items-center justify-center px-5 h-11 border-b border-hairline flex-shrink-0">
+        {/*
+          標題行：拖把視覺已去掉（用戶要求）。一般用戶靠遮罩點擊 / 下滑手勢關閉。
+          sr-only close button 為 VoiceOver / 鍵盤用戶提供入口（不影響視覺），補回 a11y。
+        */}
+        <div className="relative flex items-center justify-center px-5 h-12 border-b border-hairline flex-shrink-0">
           <span className="text-[11px] uppercase tracking-[0.2em] text-text-3 font-medium">{title}</span>
+          <button
+            type="button"
+            onClick={() => {
+              (document.activeElement as HTMLElement | null)?.blur?.();
+              onClose();
+            }}
+            aria-label="關閉新增餐面板"
+            className="sr-only"
+          >
+            關閉
+          </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 pt-4 pb-2">{children}</div>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 pt-4 pb-2">{children}</div>
       </aside>
     </>
   );

@@ -25,7 +25,9 @@ export function Dialog({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && onCancel) onCancel();
+      // busy 時不允許任何關閉路徑（避免進行中的 DELETE 等不可撤銷操作，
+      // Dialog 已關但動作仍在跑 → 失敗回滾無處可訴）
+      if (e.key === 'Escape' && onCancel && !busy) onCancel();
       if (e.key === 'Enter' && onConfirm && !busy) onConfirm();
     };
     document.addEventListener('keydown', onKey);
@@ -43,7 +45,7 @@ export function Dialog({
     >
       <div
         className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
-        onClick={onCancel}
+        onClick={busy ? undefined : onCancel}
         style={{ animation: 'ff-fade-in 0.18s ease-out both' }}
       />
       <div
