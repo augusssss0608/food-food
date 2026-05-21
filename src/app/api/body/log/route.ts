@@ -39,10 +39,11 @@ export async function POST(req: Request) {
       client_mutation_id: mutationId,
     }, { onConflict: 'user_id,client_mutation_id', ignoreDuplicates: true }).select('id');
     if (insertErr) throw insertErr;
+    const idempotentSkip = !inserted || inserted.length === 0;
 
     // 只在确实插入新 body_metrics 行时同步 profiles.current_weight_kg
     // 否则幂等重放 / 旧请求会用陈旧 weight 覆盖 profile
-    if (inserted && inserted.length > 0) {
+    if (!idempotentSkip) {
       const { error: profileErr } = await supa.from('profiles').update({
         current_weight_kg: body.weight_kg,
         updated_at: new Date().toISOString(),
@@ -50,7 +51,15 @@ export async function POST(req: Request) {
       if (profileErr) throw profileErr;
     }
 
-    return NextResponse.json({ ok: true, idempotentSkip: !inserted || inserted.length === 0 });
+    // 返回 canonical row（含 idempotency replay），client 用 row 直接 patch SWR cache
+    const { data: row, error: selectError } = await supa.from('body_metrics')
+      .select('measured_at, weight_kg, body_fat_pct, skeletal_muscle_pct, visceral_fat, bmi')
+      .eq('user_id', userId)
+      .eq('client_mutation_id', mutationId)
+      .single();
+    if (selectError) throw selectError;
+
+    return NextResponse.json({ ok: true, idempotentSkip, row });
   } catch (e: unknown) {
     if (e instanceof CsrfError) return new NextResponse('forbidden', { status: 403 });
     if (e instanceof AuthError) return new NextResponse('unauthorized', { status: 401 });

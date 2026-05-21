@@ -5,17 +5,15 @@ import { BodyPreviewCard, type BodyPreview } from '@/components/body-preview-car
 import { Card, SectionLabel } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { useToast } from '@/components/ui/toast';
-import { useDeferredRefresh } from '@/components/use-deferred-refresh';
+import type { BodyRow } from '@/lib/body-snapshot';
 
 /**
  * 體重 / 體脂截圖上傳 + AI OCR + 確認入庫。
- * 用戶要求從主頁搬到 /history/body 頁。
  *
- * 用 useDeferredRefresh：mutation 後延遲 2.5s refresh，drawer 導航時可取消，
- * 避免 refresh 清 prefetch cache 影響 history 頁 cold navigation。
+ * mutation 不再走 deferredRefresh，改成上拋 onInserted(row) 給 parent，
+ * parent 用 SWR mutate 立即 patch cache → 折線圖立即多一個點。
  */
-export function BodyUpload() {
-  const deferredRefresh = useDeferredRefresh();
+export function BodyUpload({ onInserted }: { onInserted: (row: BodyRow) => void }) {
   const toast = useToast();
   const [preview, setPreview] = useState<BodyPreview | null>(null);
   const [extractBusy, setExtractBusy] = useState(false);
@@ -65,9 +63,11 @@ export function BodyUpload() {
         const j = await r.json().catch(() => ({ error: 'unknown' }));
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
+      const j = await r.json();
+      const row = j?.row as BodyRow | undefined;
       setPreview(null);
       toast.success('已入庫', `${b.weight_kg} kg`);
-      deferredRefresh();
+      if (row) onInserted(row);
     } catch (e: unknown) {
       toast.error('提交失敗', (e as Error).message);
     } finally {
