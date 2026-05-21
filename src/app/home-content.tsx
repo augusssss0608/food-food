@@ -1,7 +1,7 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { type MealPreview } from '@/components/meal-preview-card';
+import { useDeferredRefresh } from '@/components/use-deferred-refresh';
 import { PushEnableButton } from '@/components/push-enable-button';
 import { TodaySummary } from '@/components/today-summary';
 import { TodayMeals, type TodayMeal } from '@/components/today-meals';
@@ -54,8 +54,7 @@ export function HomeContent({
   timezone: string;
   todayDate: string;
 }) {
-  const router = useRouter();
-  const [, startTransition] = useTransition();
+  const deferredRefresh = useDeferredRefresh();
   const [mealPreview, setMealPreview] = useState<MealPreview | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [draftCount, setDraftCount] = useState(0);
@@ -136,8 +135,8 @@ export function HomeContent({
     if (r) {
       toast.success('已記錄', name);
       setAddMealOpen(false);
-      // useTransition：refresh 不阻塞後續導航（修用戶反饋「新增完馬上點 drawer 跳轉卡 2-3s」）
-      startTransition(() => router.refresh());
+      // 延遲 2.5s 後 refresh，期間若用戶點 drawer item，drawer 會 cancel，避免清 prefetch cache
+      deferredRefresh();
     }
   }
 
@@ -173,7 +172,7 @@ export function HomeContent({
       setMealPreview(null);
       toast.success('已入庫', p.dish_name);
       setAddMealOpen(false);
-      startTransition(() => router.refresh());
+      deferredRefresh();
     }
   }
 

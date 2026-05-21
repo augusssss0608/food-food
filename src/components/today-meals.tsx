@@ -1,9 +1,9 @@
 'use client';
-import { useEffect, useRef, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 import { SectionLabel } from './ui/card';
 import { MealInlineEditor } from './meal-inline-editor';
 import { useToast } from './ui/toast';
+import { useDeferredRefresh } from './use-deferred-refresh';
 
 export type TodayMeal = {
   id: string;
@@ -102,9 +102,8 @@ function MealRow({
   onSwipeClose: () => void;
   onCollapseEditor: () => void;
 }) {
-  const router = useRouter();
+  const deferredRefresh = useDeferredRefresh();
   const toast = useToast();
-  const [, startTransition] = useTransition();
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -186,7 +185,7 @@ function MealRow({
       toast.success('已刪除', meal.dish_name ?? '未命名');
       onSwipeClose();
       onCollapseEditor();
-      startTransition(() => router.refresh());
+      deferredRefresh();
     } catch (e: unknown) {
       toast.error('刪除失敗', (e as Error).message);
     } finally {

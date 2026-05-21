@@ -1,8 +1,8 @@
 'use client';
-import { useEffect, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { useToast } from '@/components/ui/toast';
 import { Spinner } from '@/components/ui/spinner';
+import { useDeferredRefresh } from '@/components/use-deferred-refresh';
 
 /**
  * 主頁今日狀態：訓練日 / 休息日 切換。
@@ -19,9 +19,8 @@ export function WorkoutDayToggle({
   date: string;
   workoutMarked: boolean;
 }) {
-  const router = useRouter();
+  const deferredRefresh = useDeferredRefresh();
   const toast = useToast();
-  const [, startTransition] = useTransition();
   const [busy, setBusy] = useState<'workout' | 'rest' | null>(null);
   const [optimisticMarked, setOptimisticMarked] = useState(workoutMarked);
 
@@ -46,7 +45,7 @@ export function WorkoutDayToggle({
         const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
-      startTransition(() => router.refresh());
+      deferredRefresh();
     } catch (e: unknown) {
       setOptimisticMarked(false); // 失敗 → 回滾，讓 toggle 重新顯示
       toast.error('設定失敗', (e as Error).message);

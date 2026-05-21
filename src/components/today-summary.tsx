@@ -1,9 +1,9 @@
 'use client';
-import { useMemo, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useMemo, useState } from 'react';
 import { SectionLabel } from './ui/card';
 import { Dialog } from './ui/dialog';
 import { useToast } from './ui/toast';
+import { useDeferredRefresh } from './use-deferred-refresh';
 
 type Metric = {
   key: 'kcal' | 'protein_g' | 'carb_g' | 'fat_g';
@@ -36,9 +36,8 @@ export function TodaySummary({
   isWorkoutDay: boolean;
   todayDate: string;
 }) {
-  const router = useRouter();
+  const deferredRefresh = useDeferredRefresh();
   const toast = useToast();
-  const [, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -66,7 +65,7 @@ export function TodaySummary({
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
       setConfirmOpen(false);
-      startTransition(() => router.refresh());
+      deferredRefresh();
     } catch (e: unknown) {
       toast.error('切換失敗', (e as Error).message);
     } finally {

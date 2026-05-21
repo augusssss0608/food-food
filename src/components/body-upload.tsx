@@ -1,22 +1,22 @@
 'use client';
-import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { PhotoInput } from '@/components/photo-input';
 import { BodyPreviewCard, type BodyPreview } from '@/components/body-preview-card';
 import { Card, SectionLabel } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { useToast } from '@/components/ui/toast';
+import { useDeferredRefresh } from '@/components/use-deferred-refresh';
 
 /**
  * 體重 / 體脂截圖上傳 + AI OCR + 確認入庫。
  * 用戶要求從主頁搬到 /history/body 頁。
  *
- * router.refresh 包 useTransition，避免新增後立即點 drawer 跳轉被阻塞。
+ * 用 useDeferredRefresh：mutation 後延遲 2.5s refresh，drawer 導航時可取消，
+ * 避免 refresh 清 prefetch cache 影響 history 頁 cold navigation。
  */
 export function BodyUpload() {
-  const router = useRouter();
+  const deferredRefresh = useDeferredRefresh();
   const toast = useToast();
-  const [, startTransition] = useTransition();
   const [preview, setPreview] = useState<BodyPreview | null>(null);
   const [extractBusy, setExtractBusy] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -67,7 +67,7 @@ export function BodyUpload() {
       }
       setPreview(null);
       toast.success('已入庫', `${b.weight_kg} kg`);
-      startTransition(() => router.refresh());
+      deferredRefresh();
     } catch (e: unknown) {
       toast.error('提交失敗', (e as Error).message);
     } finally {

@@ -2,10 +2,11 @@
 import { useEffect, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { cancelDeferredRefresh } from '@/components/use-deferred-refresh';
 
 // drawer 打開時立即 prefetch 這幾個目標，讓首次點擊用 RSC cache 瞬切。
 // 不 prefetch /admin/debug：force-dynamic + 5 個 Supabase 查詢，太重且低頻。
-const PREFETCH_ON_OPEN = ['/settings', '/setup', '/inbox'];
+const PREFETCH_ON_OPEN = ['/settings', '/setup', '/inbox', '/history/meals', '/history/body'];
 
 export function Drawer({
   open,
@@ -112,11 +113,17 @@ export function DrawerItem({
       </svg>
     </>
   );
+  // 點 drawer item 觸發導航 → 同步取消任何 pending 的 deferred refresh
+  // （避免 mutation 後 2.5s 內導航被 refresh 清 prefetch cache 拖慢）
+  const handleNav = () => {
+    cancelDeferredRefresh();
+    onClick?.();
+  };
   if (href) {
     // 用 next/link 替代 <a>，next.js 客戶端瞬切，不再 MPA 全頁重載。
     // replace = true：不留可右滑回退的 history entry（防 iOS swipe-back，見
     // no-swipe-back-gesture.tsx 對應策略）。
-    return <Link href={href} prefetch replace className={className} onClick={onClick}>{inner}</Link>;
+    return <Link href={href} prefetch replace className={className} onClick={handleNav}>{inner}</Link>;
   }
-  return <button onClick={onClick} className={className}>{inner}</button>;
+  return <button onClick={handleNav} className={className}>{inner}</button>;
 }

@@ -1,9 +1,9 @@
 'use client';
-import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/toast';
+import { useDeferredRefresh } from '@/components/use-deferred-refresh';
 import type { TodayMeal } from './today-meals';
 
 const NUM_KEYS: { key: 'kcal' | 'protein_g' | 'carb_g' | 'fat_g' | 'fiber_g'; label: string; unit: string }[] = [
@@ -54,8 +54,7 @@ export function MealInlineEditor({
   meal: TodayMeal;
   onDone: () => void;
 }) {
-  const router = useRouter();
-  const [, startTransition] = useTransition();
+  const deferredRefresh = useDeferredRefresh();
   const [edit, setEdit] = useState<Editable>(() => mealToEditable(meal));
   const [busy, setBusy] = useState(false);
   const toast = useToast();
@@ -82,7 +81,7 @@ export function MealInlineEditor({
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
       toast.success('已儲存');
-      startTransition(() => router.refresh());
+      deferredRefresh();
       onDone();
     } catch (e: unknown) {
       toast.error('儲存失敗', (e as Error).message);
