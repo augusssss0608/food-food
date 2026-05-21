@@ -89,7 +89,7 @@ export default async function HistoryBodyPage() {
                   <p className="text-[12px] uppercase tracking-[0.18em] text-text-2 font-mono">
                     {c.label}
                   </p>
-                  <p className="text-[10px] font-mono text-text-3 tabular">
+                  <p className="text-[10px] font-mono text-text-2 tabular">
                     {c.unit ? `單位 ${c.unit}` : ''}
                   </p>
                 </div>
