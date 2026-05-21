@@ -68,7 +68,7 @@ export default function DeckPage() {
 
   if (!card) {
     return (
-      <PrototypeShell title="6. Swipe Deck" subtitle="Tinder for meals">
+      <PrototypeShell title="6. Swipe Deck">
         <div className="h-full flex items-center justify-center">
           <div className="text-center">
             <p className="text-[15px] text-text-3 mb-3">沒有更多菜單了</p>
@@ -101,8 +101,8 @@ export default function DeckPage() {
         : null;
 
   return (
-    <PrototypeShell title="6. Swipe Deck" subtitle="Tinder for meals">
-      <div className="h-full flex flex-col items-center justify-center p-6 relative">
+    <PrototypeShell title="6. Swipe Deck">
+      <div className="h-full flex flex-col items-center justify-center p-6 relative" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 60px)' }}>
         <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono mb-2">
           {idx + 1} / {MOCK_PRESETS.length}
         </p>

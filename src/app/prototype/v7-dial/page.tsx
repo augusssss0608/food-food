@@ -77,8 +77,8 @@ export default function DialPage() {
   }, [idx]);
 
   return (
-    <PrototypeShell title="7. Macro Dial" subtitle="iPod click wheel">
-      <div className="h-full flex flex-col items-center justify-between py-6 px-5">
+    <PrototypeShell title="7. Macro Dial">
+      <div className="h-full flex flex-col items-center justify-between px-5 pb-6" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 60px)' }}>
         {/* 中心大卡 */}
         <div className="flex-1 flex flex-col items-center justify-center w-full">
           <p className="text-[10px] uppercase tracking-wider text-text-3 font-mono mb-3">

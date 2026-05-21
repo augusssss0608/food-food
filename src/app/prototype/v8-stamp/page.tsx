@@ -56,10 +56,9 @@ export default function StampPage() {
   const draggingPreset = drag ? MOCK_PRESETS.find((p) => p.id === drag.presetId) : null;
 
   return (
-    <PrototypeShell title="8. Meal Stamp" subtitle="Drag & drop ritual">
-      <div className="h-full flex flex-col">
-        {/* 今日記錄 + drop zone */}
-        <div className="flex-shrink-0 px-5 pt-5 pb-3">
+    <PrototypeShell title="8. Meal Stamp">
+      <div className="h-full flex flex-col" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 48px)' }}>
+        <div className="flex-shrink-0 px-5 pt-3 pb-3">
           <p className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-mono mb-3">今日</p>
           <ul className="space-y-1.5 mb-3">
             {log.map((m) => (
