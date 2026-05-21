@@ -33,7 +33,7 @@ export function FabContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot 
   return (
     <PrototypeShell title="1. FAB Quick Actions">
       <div className="h-full relative overflow-hidden">
-        <RealHomeShell meals={api.meals} timezone={api.timezone} scrollPaddingBottom={120} />
+        <RealHomeShell api={api} />
 
         {/* 背景遮罩，open 時加深 */}
         <div

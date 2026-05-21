@@ -83,7 +83,7 @@ export function ShelfContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   return (
     <PrototypeShell title="2. 餐盤架 Shelf">
       <div className="h-full relative overflow-hidden">
-        <RealHomeShell meals={api.meals} timezone={api.timezone} scrollPaddingBottom={currentH + 24} />
+        <RealHomeShell api={api} />
 
         <aside
           className="absolute left-0 right-0 bottom-0 bg-surface-2 border-t border-hairline rounded-t-3xl shadow-2xl shadow-black/60 flex flex-col z-10"
