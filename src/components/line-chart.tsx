@@ -19,12 +19,13 @@ import { DateTime } from 'luxon';
  * - 初次掛載 / 數據變更 scrollLeft 設到最右（讓最新資料在視窗內）
  */
 const POINT_PX = 56;          // 每個資料點水平佔位（拉開讓上方數值不擠；ios viewport 約能容 5-6 點）
-const H = 124;                // svg 高度（給更大的數值字 + 點留空間）
-const PAD_T = 22, PAD_B = 16; // 頂部留 22 給數值文字，底部 16 給線終端
+const H = 138;                // svg 高度（頂部數值 + 中間折線 + 底部日期）
+const PAD_T = 22, PAD_B = 30; // 頂部留 22 給數值文字，底部 30 給日期 + 線終端
 const PAD_L = 8, PAD_R = 8;   // SVG 左右留白，避免首末點貼邊
 const POINT_R = 3.5;          // 統一點半徑
 const STROKE_W = 2.4;         // 折線粗細
 const VALUE_FONT = 10.5;      // 點上方數值字級
+const DATE_FONT = 9;          // 點下方日期字級
 const MIN_W = 320;
 const MOVE_THRESHOLD = 10;
 const LONG_PRESS_MS = 400;
@@ -277,6 +278,21 @@ export function LineChart({
               style={{ fontWeight: i === points.length - 1 ? 600 : 400 }}
             >
               {p.value.toFixed(1)}
+            </text>
+          ))}
+          {/* 每個點下方標日期；最新筆用主色高亮，其他用次要色 */}
+          {points.map((p, i) => (
+            <text
+              key={`d-${p.date}-${i}`}
+              x={xPos(i)}
+              y={H - 8}
+              textAnchor="middle"
+              fontSize={DATE_FONT}
+              fill={i === points.length - 1 ? color : 'var(--color-text-3)'}
+              className="font-mono"
+              style={{ fontWeight: i === points.length - 1 ? 600 : 400 }}
+            >
+              {formatDate(p.date)}
             </text>
           ))}
 
