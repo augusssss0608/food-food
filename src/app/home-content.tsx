@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import useSWR from 'swr';
 import { type MealPreview } from '@/components/meal-preview-card';
-import { useDeferredRefresh } from '@/components/use-deferred-refresh';
 import { PushEnableButton } from '@/components/push-enable-button';
 import { TodaySummary } from '@/components/today-summary';
 import { TodayMeals, type TodayMeal } from '@/components/today-meals';
@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { PageShell } from '@/components/ui/page-shell';
 import { useToast } from '@/components/ui/toast';
+import type { HomeSnapshot } from '@/lib/home-snapshot';
 
 type DraftPayload = { endpoint: string; body: Record<string, unknown>; idempotencyKey: string };
 
@@ -27,34 +28,37 @@ async function uploadDraft(draft: LocalDraft): Promise<{ id: string }> {
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const j = await r.json().catch(() => ({}));
-  return { id: j.mealId ?? j.id ?? draft.id };
+  return { id: j.meal?.id ?? j.id ?? j.mealId ?? draft.id };
 }
 
 const isOfflineError = (e: unknown): boolean => e instanceof TypeError;
 
-type Targets = {
-  kcal: number;
-  protein_g: number;
-  carb_g: number;
-  fat_g: number;
+const HOME_KEY = '/api/home/today';
+const homeFetcher = async (url: string): Promise<HomeSnapshot> => {
+  const r = await fetch(url, { headers: { 'sec-fetch-site': 'same-origin' } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
 };
 
-export function HomeContent({
-  meals,
-  targets,
-  timezone,
-  todayDate,
-  isWorkoutDay,
-  workoutMarked,
-}: {
-  meals: TodayMeal[];
-  isWorkoutDay: boolean;
-  workoutMarked: boolean;
-  targets: Targets;
-  timezone: string;
-  todayDate: string;
-}) {
-  const deferredRefresh = useDeferredRefresh();
+/**
+ * 主頁狀態用 SWR cache 接管：
+ * - 首屏 fallback 來自 RSC（loadHomeSnapshot 同 loader），無 loading 閃爍
+ * - mutation 成功後直接 `mutate(HOME_KEY, updater, { revalidate: false })` 改 cache，UI 立即更新
+ * - 不再用 router.refresh()，drawer 路由不受影響
+ * - revalidateOnFocus 關（iOS PWA 切前後台會誤觸發），revalidateOnReconnect 開
+ */
+export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot }) {
+  const { data: snapshot, mutate } = useSWR<HomeSnapshot>(HOME_KEY, homeFetcher, {
+    fallbackData: initialSnapshot,
+    revalidateOnMount: false,
+    revalidateOnFocus: false,
+    revalidateOnReconnect: true,
+    revalidateIfStale: false,
+  });
+  // fallbackData 保證永遠有值；下面以非空斷言取用
+  const data = snapshot!;
+  const { meals, timezone, todayDate, isWorkoutDay, workoutMarked, targets } = data;
+
   const [mealPreview, setMealPreview] = useState<MealPreview | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [draftCount, setDraftCount] = useState(0);
@@ -64,6 +68,7 @@ export function HomeContent({
   const [mealExtractBusy, setMealExtractBusy] = useState(false);
   const [confirmMealBusy, setConfirmMealBusy] = useState(false);
   const [adviceBusy, setAdviceBusy] = useState(false);
+  const [workoutBusy, setWorkoutBusy] = useState(false);
   const toast = useToast();
 
   const consumed = useMemo(() => meals.reduce(
@@ -85,25 +90,76 @@ export function HomeContent({
 
   useEffect(() => {
     const supa = createSupabaseBrowserClient();
-    supa.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
+    supa.auth.getUser().then(({ data: u }) => setUserId(u.user?.id ?? null));
   }, []);
 
   useEffect(() => {
     if (!userId) return;
-    const tick = () => syncDrafts(userId, uploadDraft).then(refreshDraftCount);
+    const tick = async () => {
+      // 先查 pending；0 就跳過，避免首屏沒事也 mutate() 觸發 endpoint revalidate
+      // （codex round D medium 反饋：違背「首屏只靠 RSC fallback」）
+      const pending = await getDraftsDb().drafts
+        .where({ ownerUserId: userId, status: 'pending' }).count();
+      if (pending === 0) {
+        setDraftCount(0);
+        return;
+      }
+      await syncDrafts(userId, uploadDraft);
+      await refreshDraftCount();
+      // 真的同步了才拉新 snapshot
+      mutate();
+    };
     tick();
     window.addEventListener('online', tick);
     return () => window.removeEventListener('online', tick);
-  }, [userId, refreshDraftCount]);
+  }, [userId, refreshDraftCount, mutate]);
 
-  async function submit(
-    type: 'meal' | 'body_metric',
-    endpoint: string,
-    body: Record<string, unknown>,
-  ): Promise<unknown | null> {
+  // ============ 統一的 SWR cache patcher（useCallback 讓 deps 顯式追蹤）============
+  const patchMeals = useCallback((updater: (prev: TodayMeal[]) => TodayMeal[]) => {
+    mutate((prev) => prev ? { ...prev, meals: updater(prev.meals) } : prev, { revalidate: false });
+  }, [mutate]);
+
+  const patchWorkout = useCallback((isWorkout: boolean) => {
+    mutate((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        workoutMarked: true,
+        isWorkoutDay: isWorkout,
+        targets: isWorkout ? prev.targetOptions.workout : prev.targetOptions.rest,
+      };
+    }, { revalidate: false });
+  }, [mutate]);
+
+  // ============ workout day 切換（lift up from WorkoutDayToggle + TodaySummary）============
+  async function setWorkoutDay(isWorkout: boolean): Promise<boolean> {
+    if (workoutBusy) return false;
+    setWorkoutBusy(true);
+    try {
+      const r = await fetch('/api/workout-day', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'sec-fetch-site': 'same-origin' },
+        body: JSON.stringify({ date: todayDate, is_workout: isWorkout }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+        throw new Error(j.error ?? `HTTP ${r.status}`);
+      }
+      patchWorkout(isWorkout);
+      return true;
+    } catch (e: unknown) {
+      toast.error('切換失敗', (e as Error).message);
+      return false;
+    } finally {
+      setWorkoutBusy(false);
+    }
+  }
+
+  // ============ meal mutation 入口 ============
+  async function submitMealPost(body: Record<string, unknown>): Promise<TodayMeal | null> {
     const idempotencyKey = crypto.randomUUID();
     try {
-      const r = await fetch(endpoint, {
+      const r = await fetch('/api/meals/log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
         body: JSON.stringify(body),
@@ -112,31 +168,32 @@ export function HomeContent({
         const e = await r.json().catch(() => ({ error: 'unknown' }));
         throw new Error(e.error ?? `HTTP ${r.status}`);
       }
-      return await r.json();
+      const j = await r.json();
+      // 新 API contract：{ ok, meal }；舊兼容：{ mealId }
+      if (j?.meal) return j.meal as TodayMeal;
+      return null;
     } catch (e: unknown) {
-      const err = e as { message?: string };
       if (isOfflineError(e) && userId) {
-        await saveDraft(userId, type, { endpoint, body, idempotencyKey } satisfies DraftPayload);
+        await saveDraft(userId, 'meal', { endpoint: '/api/meals/log', body, idempotencyKey } satisfies DraftPayload);
         await refreshDraftCount();
         toast.info('離線已暫存', '恢復網路後自動同步');
         return null;
       }
-      toast.error('提交失敗', err.message ?? 'unknown');
+      toast.error('提交失敗', (e as Error).message ?? 'unknown');
       return null;
     }
   }
 
   async function pickFitnessMeal(key: string, name: string) {
     setPresetBusy(key);
-    const r = await submit('meal', '/api/meals/log', {
+    const meal = await submitMealPost({
       ate_at: new Date().toISOString(), source: 'preset', preset_key: key,
     });
     setPresetBusy(null);
-    if (r) {
+    if (meal) {
+      patchMeals((prev) => [meal, ...prev]);
       toast.success('已記錄', name);
       setAddMealOpen(false);
-      // 延遲 2.5s 後 refresh，期間若用戶點 drawer item，drawer 會 cancel，避免清 prefetch cache
-      deferredRefresh();
     }
   }
 
@@ -161,20 +218,29 @@ export function HomeContent({
 
   async function confirmMeal(p: MealPreview, satiety: number | undefined) {
     setConfirmMealBusy(true);
-    const r = await submit('meal', '/api/meals/log', {
+    const meal = await submitMealPost({
       ate_at: new Date().toISOString(), source: 'photo_ai',
       dish_name: p.dish_name, kcal: p.kcal, protein_g: p.protein_g,
       carb_g: p.carb_g, fat_g: p.fat_g, fiber_g: p.fiber_g,
       ai_raw_json: { confidence: p.confidence }, satiety,
     });
     setConfirmMealBusy(false);
-    if (r) {
+    if (meal) {
+      patchMeals((prev) => [meal, ...prev]);
       setMealPreview(null);
       toast.success('已入庫', p.dish_name);
       setAddMealOpen(false);
-      deferredRefresh();
     }
   }
+
+  // 子層上拋：刪除 / 編輯成功
+  const onMealDeleted = useCallback((id: string) => {
+    patchMeals((prev) => prev.filter((m) => m.id !== id));
+  }, [patchMeals]);
+
+  const onMealUpdated = useCallback((meal: TodayMeal) => {
+    patchMeals((prev) => prev.map((m) => (m.id === meal.id ? meal : m)));
+  }, [patchMeals]);
 
   async function triggerDailyAdvice() {
     setAdviceBusy(true);
@@ -246,7 +312,11 @@ export function HomeContent({
         </div>
 
         {/* 今日狀態：未標記時顯示 toggle；標記後該行消失，切換交給 TodaySummary 右上標籤 */}
-        <WorkoutDayToggle date={todayDate} workoutMarked={workoutMarked} />
+        <WorkoutDayToggle
+          workoutMarked={workoutMarked}
+          onSetWorkoutDay={setWorkoutDay}
+          busy={workoutBusy}
+        />
 
         {/* 今日摘要（含可點切換的右上日狀態標籤） */}
         <TodaySummary
@@ -254,11 +324,17 @@ export function HomeContent({
           targets={targets}
           workoutMarked={workoutMarked}
           isWorkoutDay={isWorkoutDay}
-          todayDate={todayDate}
+          onSetWorkoutDay={setWorkoutDay}
+          busy={workoutBusy}
         />
 
         {/* 今日已記錄：inline 展開編輯，不再彈半窗 */}
-        <TodayMeals meals={meals} timezone={timezone} />
+        <TodayMeals
+          meals={meals}
+          timezone={timezone}
+          onMealDeleted={onMealDeleted}
+          onMealUpdated={onMealUpdated}
+        />
 
         {/* AI 今日總評 */}
         <section>

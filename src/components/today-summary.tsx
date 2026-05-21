@@ -2,8 +2,7 @@
 import { useMemo, useState } from 'react';
 import { SectionLabel } from './ui/card';
 import { Dialog } from './ui/dialog';
-import { useToast } from './ui/toast';
-import { useDeferredRefresh } from './use-deferred-refresh';
+import type { Nutrients } from '@/lib/home-snapshot';
 
 type Metric = {
   key: 'kcal' | 'protein_g' | 'carb_g' | 'fat_g';
@@ -17,29 +16,29 @@ type Metric = {
 /**
  * 今日摘要：4 個指標環。
  *
- * 「訓練日 / 休息日」標籤行為（用戶要求）：
- *   - workoutMarked = false：右上不顯示標籤（toggle 在主頁另一處顯示）
- *   - workoutMarked = true：右上顯示「訓練日 / 休息日」按鈕，點擊 → Dialog 確認 → 切換到另一種
+ * 「訓練日 / 休息日」標籤行為：
+ *   - workoutMarked = false：右上不顯示標籤
+ *   - workoutMarked = true：右上顯示「訓練日 / 休息日」按鈕，點擊 → Dialog 確認 → 切換
  *
- * 全部 target = 0 → 顯示「請先選擇今日狀態」提示，不畫空環。
+ * 切換 lift up 到 HomeContent（用 SWR cache patch 立即更新 UI，不再自己 fetch）。
+ * 全部 target = 0 → 顯示「請先選擇今日狀態」提示。
  */
 export function TodaySummary({
   consumed,
   targets,
   workoutMarked,
   isWorkoutDay,
-  todayDate,
+  onSetWorkoutDay,
+  busy,
 }: {
-  consumed: { kcal: number; protein_g: number; carb_g: number; fat_g: number };
-  targets: { kcal: number; protein_g: number; carb_g: number; fat_g: number };
+  consumed: Nutrients;
+  targets: Nutrients;
   workoutMarked: boolean;
   isWorkoutDay: boolean;
-  todayDate: string;
+  onSetWorkoutDay: (isWorkout: boolean) => Promise<boolean>;
+  busy: boolean;
 }) {
-  const deferredRefresh = useDeferredRefresh();
-  const toast = useToast();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
 
   const metrics: Metric[] = useMemo(() => [
     { key: 'kcal', label: 'kcal', consumed: consumed.kcal, target: targets.kcal, unit: '', color: '#c8ff00' },
@@ -53,24 +52,8 @@ export function TodaySummary({
   const otherLabel = isWorkoutDay ? '休息日' : '訓練日';
 
   async function doSwitch() {
-    setBusy(true);
-    try {
-      const r = await fetch('/api/workout-day', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'sec-fetch-site': 'same-origin' },
-        body: JSON.stringify({ date: todayDate, is_workout: !isWorkoutDay }),
-      });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
-        throw new Error(j.error ?? `HTTP ${r.status}`);
-      }
-      setConfirmOpen(false);
-      deferredRefresh();
-    } catch (e: unknown) {
-      toast.error('切換失敗', (e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+    const ok = await onSetWorkoutDay(!isWorkoutDay);
+    if (ok) setConfirmOpen(false);
   }
 
   return (
@@ -85,7 +68,6 @@ export function TodaySummary({
             className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-text-2 font-mono bg-surface-2 border border-hairline hover:border-hairline-strong hover:text-text active:scale-95 transition-all px-2.5 py-1 rounded-md"
           >
             {currentLabel}
-            {/* 雙向箭頭：暗示「可切換」 */}
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M7 16l-4-4 4-4M3 12h13M17 8l4 4-4 4M21 12H8" />
             </svg>

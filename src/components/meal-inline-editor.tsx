@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/toast';
-import { useDeferredRefresh } from '@/components/use-deferred-refresh';
 import type { TodayMeal } from './today-meals';
 
 const NUM_KEYS: { key: 'kcal' | 'protein_g' | 'carb_g' | 'fat_g' | 'fiber_g'; label: string; unit: string }[] = [
@@ -50,11 +49,12 @@ const isEmpty = (v: number | '') => v === '' || Number.isNaN(v);
 export function MealInlineEditor({
   meal,
   onDone,
+  onUpdated,
 }: {
   meal: TodayMeal;
   onDone: () => void;
+  onUpdated: (meal: TodayMeal) => void;
 }) {
-  const deferredRefresh = useDeferredRefresh();
   const [edit, setEdit] = useState<Editable>(() => mealToEditable(meal));
   const [busy, setBusy] = useState(false);
   const toast = useToast();
@@ -80,8 +80,20 @@ export function MealInlineEditor({
         const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
         throw new Error(j.error ?? `HTTP ${r.status}`);
       }
+      const j = await r.json();
+      // 新 API contract：{ ok, meal }；舊兼容：直接拿 server 返回的 row（缺則用 local edit 填）
+      const serverMeal = (j?.meal as TodayMeal | undefined) ?? {
+        ...meal,
+        dish_name: edit.dish_name || null,
+        kcal: isEmpty(edit.kcal) ? null : (edit.kcal as number),
+        protein_g: isEmpty(edit.protein_g) ? null : (edit.protein_g as number),
+        carb_g: isEmpty(edit.carb_g) ? null : (edit.carb_g as number),
+        fat_g: isEmpty(edit.fat_g) ? null : (edit.fat_g as number),
+        fiber_g: isEmpty(edit.fiber_g) ? null : (edit.fiber_g as number),
+        satiety: isEmpty(edit.satiety) ? null : (edit.satiety as number),
+      };
       toast.success('已儲存');
-      deferredRefresh();
+      onUpdated(serverMeal);
       onDone();
     } catch (e: unknown) {
       toast.error('儲存失敗', (e as Error).message);

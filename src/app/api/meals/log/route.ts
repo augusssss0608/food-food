@@ -47,7 +47,8 @@ export async function POST(req: Request) {
       };
     }
 
-    const { data, error } = await supabaseAdmin().from('meals').upsert({
+    const admin = supabaseAdmin();
+    const { error: upsertError } = await admin.from('meals').upsert({
       user_id: userId,
       ate_at: body.ate_at,
       source: body.source,
@@ -57,12 +58,20 @@ export async function POST(req: Request) {
       ai_raw_json: body.ai_raw_json ?? null,
       notes: body.notes,
       client_mutation_id: mutationId,
-    }, { onConflict: 'user_id,client_mutation_id', ignoreDuplicates: true })
-      .select('id')
-      .maybeSingle();
+    }, { onConflict: 'user_id,client_mutation_id', ignoreDuplicates: true });
+    if (upsertError) throw upsertError;
 
-    if (error) throw error;
-    return NextResponse.json({ ok: true, mealId: (data as { id?: string } | null)?.id ?? null });
+    // 不管 upsert 是 insert 還是 idempotency replay（ignoreDuplicates 不返回 row），都用
+    // client_mutation_id 查一次完整 row，client 收到後可直接 patch SWR cache，UI 立即更新。
+    const { data: meal, error: selectError } = await admin.from('meals')
+      .select('id, ate_at, source, dish_name, kcal, protein_g, carb_g, fat_g, fiber_g, satiety')
+      .eq('user_id', userId)
+      .eq('client_mutation_id', mutationId)
+      .single();
+    if (selectError) throw selectError;
+
+    // 兼容性：保留 mealId 給離線 draft / 舊 callers，主要看 `meal`
+    return NextResponse.json({ ok: true, meal, mealId: meal.id });
   } catch (e: unknown) {
     if (e instanceof CsrfError) return new NextResponse('forbidden', { status: 403 });
     if (e instanceof AuthError) return new NextResponse('unauthorized', { status: 401 });

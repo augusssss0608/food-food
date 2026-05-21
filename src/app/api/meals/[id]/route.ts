@@ -32,13 +32,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     IdParam.parse(id);
     const body = PatchBody.parse(await req.json());
 
-    // 雙條件 .eq('id', id).eq('user_id', userId) 確保只能改自己的 meal
+    // 雙條件 .eq('id', id).eq('user_id', userId) 確保只能改自己的 meal；
+    // 返回完整 row 供 client patch SWR cache，UI 立即更新（不必再走 RSC refresh）
     const { data, error } = await supabaseAdmin()
       .from('meals')
       .update(body)
       .eq('id', id)
       .eq('user_id', userId)
-      .select('id')
+      .select('id, ate_at, source, dish_name, kcal, protein_g, carb_g, fat_g, fiber_g, satiety')
       .maybeSingle();
 
     if (error) {
@@ -47,7 +48,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     }
     if (!data) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
-    return NextResponse.json({ ok: true, id: data.id });
+    return NextResponse.json({ ok: true, meal: data });
   } catch (e: unknown) {
     if (e instanceof CsrfError) return new NextResponse('forbidden', { status: 403 });
     if (e instanceof AuthError) return new NextResponse('unauthorized', { status: 401 });
