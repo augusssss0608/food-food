@@ -33,9 +33,9 @@ export function CardBody({ children, className = '' }: { children: ReactNode; cl
   return <div className={`px-5 pb-5 ${className}`}>{children}</div>;
 }
 
-export function SectionLabel({ children }: { children: ReactNode }) {
+export function SectionLabel({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <h2 className="text-[11px] uppercase tracking-[0.18em] text-text-3 font-medium mb-3">
+    <h2 className={`text-[11px] uppercase tracking-[0.18em] text-text-3 font-medium mb-3 ${className}`.trim()}>
       {children}
     </h2>
   );

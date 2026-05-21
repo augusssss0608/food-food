@@ -15,7 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { PageShell } from '@/components/ui/page-shell';
 import { useToast } from '@/components/ui/toast';
-import type { HomeSnapshot } from '@/lib/home-snapshot';
+import type { HomeSnapshot, UserMealPreset, RecentPhotoMeal } from '@/lib/home-snapshot';
+import type { MealPresetFormInput } from '@/components/meal-preset-form';
 
 type DraftPayload = { endpoint: string; body: Record<string, unknown>; idempotencyKey: string };
 
@@ -58,6 +59,9 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
   // fallbackData 保證永遠有值；下面以非空斷言取用
   const data = snapshot!;
   const { meals, timezone, todayDate, isWorkoutDay, workoutMarked, targets } = data;
+  // customPresets / recentPhotoMeals 走 zod optional().default([])，部署窗口 RPC 還沒返回時為 []
+  const customPresets = data.customPresets ?? [];
+  const recentPhotoMeals = data.recentPhotoMeals ?? [];
 
   // SWR 細節：fallbackData 只填 hook returned data，**不寫入 cache**。
   // 後續 mutate((prev) => ...) 收到的 prev 來自 cache（undefined），不是 fallbackData。
@@ -82,6 +86,8 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
   const [confirmMealBusy, setConfirmMealBusy] = useState(false);
   const [adviceBusy, setAdviceBusy] = useState(false);
   const [workoutBusy, setWorkoutBusy] = useState(false);
+  const [createPresetBusy, setCreatePresetBusy] = useState(false);
+  const [duplicatePresetName, setDuplicatePresetName] = useState(false);
   const toast = useToast();
 
   const consumed = useMemo(() => meals.reduce(
@@ -136,6 +142,52 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
       const base = prev ?? data;
       if (!base) return base;
       return { ...base, meals: updater(base.meals) };
+    }, { revalidate: false });
+  }, [mutate, data]);
+
+  // 自定义菜单 cache patch：prepend 新 preset
+  const patchCustomPresets = useCallback((preset: UserMealPreset) => {
+    mutate((prev) => {
+      const base = prev ?? data;
+      if (!base) return base;
+      const existing = base.customPresets ?? [];
+      return { ...base, customPresets: [preset, ...existing] };
+    }, { revalidate: false });
+  }, [mutate, data]);
+
+  // 拍照入庫後：normalize 後同名替換，prepend，截 10
+  const patchRecentPhotoMeals = useCallback((meal: TodayMeal) => {
+    if (meal.source !== 'photo_ai') return;
+    if (
+      meal.dish_name == null ||
+      meal.kcal == null ||
+      meal.protein_g == null ||
+      meal.carb_g == null ||
+      meal.fat_g == null
+    ) return;
+    const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+    mutate((prev) => {
+      const base = prev ?? data;
+      if (!base) return base;
+      const dishName = meal.dish_name!;
+      const item: RecentPhotoMeal = {
+        meal_id: meal.id,
+        dish_name: dishName.trim(),
+        kcal: meal.kcal!,
+        protein_g: meal.protein_g!,
+        carb_g: meal.carb_g!,
+        fat_g: meal.fat_g!,
+        fiber_g: meal.fiber_g ?? 0,
+        created_at: new Date().toISOString(),
+      };
+      const existing = base.recentPhotoMeals ?? [];
+      return {
+        ...base,
+        recentPhotoMeals: [
+          item,
+          ...existing.filter((x) => norm(x.dish_name) !== norm(dishName)),
+        ].slice(0, 10),
+      };
     }, { revalidate: false });
   }, [mutate, data]);
 
@@ -205,16 +257,52 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
     }
   }
 
-  async function pickFitnessMeal(key: string, name: string) {
-    setPresetBusy(key);
+  async function pickCustomPreset(preset: UserMealPreset) {
+    setPresetBusy(preset.id);
     const meal = await submitMealPost({
-      ate_at: new Date().toISOString(), source: 'preset', preset_key: key,
+      ate_at: new Date().toISOString(),
+      source: 'manual',
+      preset_id: preset.id,
     });
     setPresetBusy(null);
     if (meal) {
       patchMeals((prev) => [meal, ...prev]);
-      toast.success('已記錄', name);
+      toast.success('已記錄', preset.name);
       setAddMealOpen(false);
+    }
+  }
+
+  // 新建自定义菜单（AddMealSheet 「+」/「加入自定義菜單」共用）。
+  // 返 boolean：true 表示成功（sheet 內切回 list view），false 表示失敗 / 重名（保留 form 讓用戶改）。
+  async function createPreset(input: MealPresetFormInput): Promise<boolean> {
+    setCreatePresetBusy(true);
+    setDuplicatePresetName(false);
+    try {
+      const r = await fetch('/api/meal-presets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'sec-fetch-site': 'same-origin' },
+        body: JSON.stringify(input),
+      });
+      if (r.status === 409) {
+        setDuplicatePresetName(true);
+        return false;
+      }
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({ error: 'unknown' }));
+        throw new Error(e.error ?? `HTTP ${r.status}`);
+      }
+      const j = await r.json();
+      const preset = j?.preset as UserMealPreset | undefined;
+      if (preset) {
+        patchCustomPresets(preset);
+        toast.success('已加入', preset.name);
+      }
+      return true;
+    } catch (e: unknown) {
+      toast.error('保存失敗', (e as Error).message ?? 'unknown');
+      return false;
+    } finally {
+      setCreatePresetBusy(false);
     }
   }
 
@@ -248,6 +336,7 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
     setConfirmMealBusy(false);
     if (meal) {
       patchMeals((prev) => [meal, ...prev]);
+      patchRecentPhotoMeals(meal);
       setMealPreview(null);
       toast.success('已入庫', p.dish_name);
       setAddMealOpen(false);
@@ -371,9 +460,15 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
       {/* 「+」打開的新增餐面板 */}
       <AddMealSheet
         open={addMealOpen}
-        onClose={() => setAddMealOpen(false)}
+        onClose={() => { setAddMealOpen(false); setDuplicatePresetName(false); }}
+        customPresets={customPresets}
+        recentPhotoMeals={recentPhotoMeals}
         presetBusy={presetBusy}
-        onPickPreset={pickFitnessMeal}
+        onPickCustomPreset={pickCustomPreset}
+        createPresetBusy={createPresetBusy}
+        duplicatePresetName={duplicatePresetName}
+        onClearDuplicatePresetName={() => setDuplicatePresetName(false)}
+        onCreatePreset={createPreset}
         mealExtractBusy={mealExtractBusy}
         onUploadMealPhoto={uploadMealPhoto}
         mealPreview={mealPreview}

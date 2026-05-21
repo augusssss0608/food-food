@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
 import { assertSameOrigin, CsrfError } from '@/lib/auth/csrf';
 import { requireAllowedUser, AuthError, ForbiddenError } from '@/lib/auth/require-allowed-user';
 import { extractIdempotencyKey, MissingIdempotencyKeyError } from '@/lib/auth/idempotency';
@@ -11,6 +11,7 @@ const Body = z.object({
   ate_at: z.string(),
   source: z.enum(['preset', 'photo_ai', 'manual']),
   preset_key: z.string().optional(),
+  preset_id: z.string().uuid().optional(),
   dish_name: z.string().optional(),
   kcal: z.number().optional(),
   protein_g: z.number().optional(),
@@ -32,6 +33,7 @@ export async function POST(req: Request) {
     const body = Body.parse(await req.json());
 
     let nutrients: { kcal?: number; protein_g?: number; carb_g?: number; fat_g?: number; fiber_g?: number; dish_name?: string } = {};
+    const admin = supabaseAdmin();
     if (body.source === 'preset') {
       if (!body.preset_key) return NextResponse.json({ error: 'preset_key required for source=preset' }, { status: 400 });
       const preset = getFitnessMealPreset(body.preset_key);
@@ -40,14 +42,31 @@ export async function POST(req: Request) {
         dish_name: preset.name, kcal: preset.kcal, protein_g: preset.protein,
         carb_g: preset.carb, fat_g: preset.fat, fiber_g: preset.fiber,
       };
+    } else if (body.source === 'manual' && body.preset_id) {
+      // 自定义菜单一键加餐：从 user_meal_presets 反查权威 macros，不信任客户端字段
+      const { data: preset, error: presetErr } = await admin
+        .from('user_meal_presets')
+        .select('name, kcal, protein_g, carb_g, fat_g, fiber_g')
+        .eq('id', body.preset_id)
+        .eq('user_id', userId)
+        .is('deleted_at', null)
+        .maybeSingle();
+      if (presetErr) throw presetErr;
+      if (!preset) return NextResponse.json({ error: 'preset_not_found' }, { status: 400 });
+      nutrients = {
+        dish_name: preset.name,
+        kcal: Number(preset.kcal),
+        protein_g: Number(preset.protein_g),
+        carb_g: Number(preset.carb_g),
+        fat_g: Number(preset.fat_g),
+        fiber_g: Number(preset.fiber_g),
+      };
     } else {
       nutrients = {
         dish_name: body.dish_name, kcal: body.kcal, protein_g: body.protein_g,
         carb_g: body.carb_g, fat_g: body.fat_g, fiber_g: body.fiber_g,
       };
     }
-
-    const admin = supabaseAdmin();
     const { error: upsertError } = await admin.from('meals').upsert({
       user_id: userId,
       ate_at: body.ate_at,
@@ -77,6 +96,7 @@ export async function POST(req: Request) {
     if (e instanceof AuthError) return new NextResponse('unauthorized', { status: 401 });
     if (e instanceof ForbiddenError) return new NextResponse('forbidden', { status: 403 });
     if (e instanceof MissingIdempotencyKeyError) return NextResponse.json({ error: e.message }, { status: 400 });
+    if (e instanceof ZodError) return NextResponse.json({ error: 'bad request', issues: e.issues }, { status: 400 });
     const err = e as { message?: string; stack?: string };
     await writeAppError({ kind: 'ai_call', message: err.message, stack: err.stack });
     return NextResponse.json({ error: 'internal' }, { status: 500 });

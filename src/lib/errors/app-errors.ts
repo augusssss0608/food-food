@@ -13,7 +13,8 @@ export type AppErrorKind =
   | 'meals_delete'
   | 'workout_day_set'
   | 'home_snapshot'
-  | 'body_snapshot';
+  | 'body_snapshot'
+  | 'meal_presets_create';
 
 /**
  * 写 app_errors。**永不抛**——内部任何异常（含 DB 网络错误）都吞掉并 console.error，

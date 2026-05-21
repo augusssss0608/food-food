@@ -7,7 +7,10 @@ test.beforeEach(async () => {
   await ensureOwnerProfile();
 });
 
-test('04 preset-meal-log: 点 preset → meals 行字段全正确', async ({ page }) => {
+// 旧 fitness-meals 硬編碼 preset 入口已從 UI 移除（改成自定義菜單 user_meal_presets）。
+// 後端 source='preset' 路徑仍保留供離線 draft / 兼容測試（API 層測試見 api-meals-log），
+// 但這個 UI e2e 已失效，待 followup 改成自定義菜單流程後再啟用。
+test.skip('04 preset-meal-log: 点 preset → meals 行字段全正确', async ({ page }) => {
   page.on('dialog', (d) => d.accept());
   const supa = adminClient();
   await page.goto('/');

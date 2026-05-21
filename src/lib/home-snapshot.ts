@@ -18,8 +18,32 @@ export type Nutrients = {
   fat_g: number;
 };
 
+export type UserMealPreset = {
+  id: string;
+  name: string;
+  kcal: number;
+  protein_g: number;
+  carb_g: number;
+  fat_g: number;
+  fiber_g: number;
+  created_at: string;
+};
+
+export type RecentPhotoMeal = {
+  meal_id: string;
+  dish_name: string;
+  kcal: number;
+  protein_g: number;
+  carb_g: number;
+  fat_g: number;
+  fiber_g: number;
+  created_at: string;
+};
+
 export type HomeSnapshot = {
   meals: TodayMeal[];
+  customPresets: UserMealPreset[];
+  recentPhotoMeals: RecentPhotoMeal[];
   timezone: string;
   todayDate: string;          // local date YYYY-MM-DD
   workoutMarked: boolean;
@@ -52,8 +76,34 @@ const TodayMealSchema = z.object({
   satiety: z.number().nullable(),
 }).strict();
 
+const UserMealPresetSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kcal: z.number(),
+  protein_g: z.number(),
+  carb_g: z.number(),
+  fat_g: z.number(),
+  fiber_g: z.number(),
+  created_at: z.string(),
+}).strict();
+
+const RecentPhotoMealSchema = z.object({
+  meal_id: z.string(),
+  dish_name: z.string(),
+  kcal: z.number(),
+  protein_g: z.number(),
+  carb_g: z.number(),
+  fat_g: z.number(),
+  fiber_g: z.number(),
+  created_at: z.string(),
+}).strict();
+
+// customPresets / recentPhotoMeals 用 optional().default([])：
+// 部署窗口期 frontend 先 deploy，旧 RPC 还没返回新字段时不会 strict parse 失败
 const HomeSnapshotSchema = z.object({
   meals: z.array(TodayMealSchema),
+  customPresets: z.array(UserMealPresetSchema).optional().default([]),
+  recentPhotoMeals: z.array(RecentPhotoMealSchema).optional().default([]),
   timezone: z.string(),
   todayDate: z.string(),
   workoutMarked: z.boolean(),
