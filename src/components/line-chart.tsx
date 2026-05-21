@@ -18,11 +18,11 @@ import { DateTime } from 'luxon';
  * - 隱藏滾動條，視覺乾淨
  * - 初次掛載 / 數據變更 scrollLeft 設到最右（讓最新資料在視窗內）
  */
-const POINT_PX = 32;          // 每個資料點水平佔位（10 個點 ≈ 320px viewport）
-const H = 100;
-const PAD_T = 8, PAD_B = 8;
+const POINT_PX = 48;          // 每個資料點水平佔位（拉開讓上方數值不擠；ios viewport 約能容 6-7 點）
+const H = 110;                // svg 高度（比 100 多 10px 給數值留空間）
+const PAD_T = 18, PAD_B = 14; // 顶部留 18 給數值文字，底部 14 給線終端
 const PAD_L = 8, PAD_R = 8;   // SVG 左右留白，避免首末點貼邊
-const MIN_W = 320;            // 數據少於 10 點時的最小寬度（佔滿一頁）
+const MIN_W = 320;
 const MOVE_THRESHOLD = 10;
 const LONG_PRESS_MS = 400;
 
@@ -260,6 +260,21 @@ export function LineChart({
               r={i === points.length - 1 ? 3 : 1.6}
               fill={color}
             />
+          ))}
+          {/* 每個點上方標數值；最新點略加粗讓視覺重心一致 */}
+          {points.map((p, i) => (
+            <text
+              key={`v-${p.date}-${i}`}
+              x={xPos(i)}
+              y={yPos(p.value) - 5}
+              textAnchor="middle"
+              fontSize="9"
+              fill="var(--color-text-2)"
+              className="font-mono"
+              style={{ fontWeight: i === points.length - 1 ? 600 : 400 }}
+            >
+              {p.value.toFixed(1)}
+            </text>
           ))}
 
           {hovered && hoverIdx != null && (
