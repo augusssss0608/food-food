@@ -51,9 +51,11 @@ export function BodyHistoryContent({ initialSnapshot }: { initialSnapshot: BodyS
   const data = snapshot!;
   const rows = data.rows;
 
-  // 主動把 initialSnapshot seed 到 cache（fallbackData 只填 hook returned data，不寫 cache）
+  // 主動把 initialSnapshot seed 到 cache（fallbackData 只填 hook returned data，不寫 cache）。
+  // 只在 cache 為空時填：切頁返回時 Router Cache 帶來的 initialSnapshot 是舊的，
+  // 無條件覆蓋會把 patch 過的新 row 打回去（折線圖點消失）。
   useEffect(() => {
-    mutate(initialSnapshot, { revalidate: false });
+    mutate((prev) => prev ?? initialSnapshot, { revalidate: false });
   }, [initialSnapshot, mutate]);
 
   const toast = useToast();

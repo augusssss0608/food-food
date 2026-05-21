@@ -61,10 +61,15 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
 
   // SWR 細節：fallbackData 只填 hook returned data，**不寫入 cache**。
   // 後續 mutate((prev) => ...) 收到的 prev 來自 cache（undefined），不是 fallbackData。
-  // mount 後立即把 initialSnapshot seed 進 cache，讓後續 patch 的 prev 永遠是 truthy。
-  // 為什麼仍要 patcher 內 `prev ?? data` 兜底：用戶極快點擊時可能比 seed effect 早跑。
+  // mount 後把 initialSnapshot seed 進 cache，讓後續 patch 的 prev 永遠是 truthy。
+  //
+  // 重點：用 `prev ?? initialSnapshot` 而不是無條件覆蓋。
+  // 切到別頁再回主頁時，Next Router Cache 會把舊 RSC payload 重新 hydrate，
+  // 帶來的 initialSnapshot 是 mutation 前的舊快照；如果無條件 mutate 過去，
+  // 會把 SWR cache 裡 patch 過的最新值打回去，造成「切頁再回 UI 還原」。
+  // 這裡只在 cache 真的為空時填，已有值（含 mutation 後的最新值）一律保留。
   useEffect(() => {
-    mutate(initialSnapshot, { revalidate: false });
+    mutate((prev) => prev ?? initialSnapshot, { revalidate: false });
   }, [initialSnapshot, mutate]);
 
   const [mealPreview, setMealPreview] = useState<MealPreview | null>(null);
