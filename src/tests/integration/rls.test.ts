@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createTestAdminClient, OWNER_UID } from './helpers/test-supabase';
+import { ensureTestUser } from './helpers/test-users';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321';
@@ -54,26 +55,9 @@ describe('RLS — authenticated user JWT matrix', () => {
   let ownerClient: ReturnType<typeof createClient>;
   let strangerClient: ReturnType<typeof createClient>;
 
-  async function ensureUser(email: string): Promise<{ id: string }> {
-    // 先尝试 createUser，如果 "already registered" 错误就用 list 找出来
-    const r = await admin.auth.admin.createUser({ email, password: PW, email_confirm: true });
-    if (r.data.user) return r.data.user;
-    // createUser 失败（多半因为已存在）→ listUsers 找
-    for (let page = 1; page <= 10; page++) {
-      const { data: list } = await admin.auth.admin.listUsers({ page, perPage: 100 });
-      const found = list.users.find((u) => u.email === email);
-      if (found) {
-        await admin.auth.admin.updateUserById(found.id, { password: PW });
-        return found;
-      }
-      if (list.users.length < 100) break;
-    }
-    throw new Error(`ensureUser('${email}') 失败：createUser err=${r.error?.message ?? 'null'}, list search no hit`);
-  }
-
   beforeAll(async () => {
-    ownerId = (await ensureUser(TEST_OWNER_EMAIL)).id;
-    strangerId = (await ensureUser(STRANGER_EMAIL)).id;
+    ownerId = (await ensureTestUser(admin, TEST_OWNER_EMAIL, PW)).id;
+    strangerId = (await ensureTestUser(admin, STRANGER_EMAIL, PW)).id;
 
     // 把 owner 绑到 app_private.app_owner（表结构 id boolean + owner_user_id uuid，single_owner 约束）
     await admin.schema('app_private').from('app_owner').upsert({

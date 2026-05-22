@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createTestAdminClient, OWNER_UID } from './helpers/test-supabase';
+import { ensureTestUser } from './helpers/test-users';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:54321';
@@ -33,23 +34,8 @@ describe('snapshot RPCs', () => {
   let ownerId: string;
   let ownerClient: ReturnType<typeof createClient>;
 
-  async function ensureUser(email: string): Promise<{ id: string }> {
-    const r = await admin.auth.admin.createUser({ email, password: PW, email_confirm: true });
-    if (r.data.user) return r.data.user;
-    for (let page = 1; page <= 10; page++) {
-      const { data: list } = await admin.auth.admin.listUsers({ page, perPage: 100 });
-      const found = list.users.find((u) => u.email === email);
-      if (found) {
-        await admin.auth.admin.updateUserById(found.id, { password: PW });
-        return found;
-      }
-      if (list.users.length < 100) break;
-    }
-    throw new Error(`ensureUser('${email}') 失败`);
-  }
-
   beforeAll(async () => {
-    ownerId = (await ensureUser(TEST_OWNER_EMAIL)).id;
+    ownerId = (await ensureTestUser(admin, TEST_OWNER_EMAIL, PW)).id;
 
     // 切到测试 owner（双层 RLS 需要 app_owner = ownerId）
     await admin.schema('app_private').from('app_owner').upsert({
