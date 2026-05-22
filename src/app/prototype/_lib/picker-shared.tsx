@@ -2,6 +2,7 @@
 import { useRef, useState } from 'react';
 import type { UserMealPreset } from '@/lib/home-snapshot';
 import { MockPresetForm, InlineConfirmDialog } from './preset-manager';
+import type { HomeDataApi } from './use-home-data';
 
 /* ============ 横向 wheel picker hook（与 wheel-picker 对称，X 轴版） ============ */
 export function useHWheelPicker(itemCount: number, itemWidth: number) {
@@ -142,7 +143,7 @@ export function PresetCrudModals({
   editOpen, setEditOpen,
   delOpen, setDelOpen,
 }: {
-  api: any;
+  api: HomeDataApi;
   currentPreset: UserMealPreset | undefined;
   menuOpen: boolean; setMenuOpen: (b: boolean) => void;
   createOpen: boolean; setCreateOpen: (b: boolean) => void;

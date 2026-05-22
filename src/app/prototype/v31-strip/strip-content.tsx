@@ -2,7 +2,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
 import { RealHomeShell } from '../_lib/real-home';
-import { useHomeData } from '../_lib/use-home-data';
+import { useHomeData, type HomeDataApi } from '../_lib/use-home-data';
 import { MockPresetForm, InlineConfirmDialog } from '../_lib/preset-manager';
 import { useWheelPicker } from '../_lib/wheel-picker';
 import { useDelayedCommit } from '../_lib/use-delayed-commit';
@@ -321,7 +321,18 @@ function useHWheelPicker(itemCount: number, itemWidth: number) {
 function CrudModals({
   api, currentPreset, showLongPress, showCreate, showEdit, showDel,
   setMenuOpen, setCreateOpen, setEditOpen, setDelOpen,
-}: any) {
+}: {
+  api: HomeDataApi;
+  currentPreset: UserMealPreset | undefined;
+  showLongPress: boolean;
+  showCreate: boolean;
+  showEdit: boolean;
+  showDel: boolean;
+  setMenuOpen: (b: boolean) => void;
+  setCreateOpen: (b: boolean) => void;
+  setEditOpen: (b: boolean) => void;
+  setDelOpen: (b: boolean) => void;
+}) {
   return (
     <>
       {showLongPress && currentPreset && (
