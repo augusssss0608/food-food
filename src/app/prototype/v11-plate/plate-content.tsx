@@ -111,7 +111,7 @@ export function PlateContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
         >
           <div className="ml-16">
             <p className="text-[9px] uppercase tracking-[0.3em] text-text-3 font-mono">composition</p>
-            <p className="display-roman text-[20px] leading-none mt-0.5">today's plate</p>
+            <p className="display-roman text-[20px] leading-none mt-0.5">today&rsquo;s plate</p>
           </div>
           <p className="text-[10px] font-mono text-text-3 uppercase tracking-wider">
             <span className="text-accent tabular">{orderedMeals.length}</span>
