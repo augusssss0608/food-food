@@ -31,7 +31,7 @@ export function DialContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
   }
 
   return (
-    <PrototypeShell title="4. Macro Dial">
+    <PrototypeShell title="3. Macro Dial">
       <div className="h-full relative">
         <RealHomeShell api={api} rightAction={<PlusButton />} />
         {open && <DialOverlay api={api} onClose={() => setOpen(false)} />}

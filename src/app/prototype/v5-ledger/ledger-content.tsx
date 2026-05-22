@@ -236,7 +236,7 @@ export function LedgerContent({ initialSnapshot }: { initialSnapshot: HomeSnapsh
   );
 
   return (
-    <PrototypeShell title="3. Today Ledger">
+    <PrototypeShell title="2. Today Ledger">
       <RealHomeShell
         api={api}
         rightAction={null}
