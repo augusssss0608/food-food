@@ -4,22 +4,22 @@ export const dynamic = 'force-dynamic';
 
 const VARIANTS: { slug: string; title: string; tagline: string; desc: string }[] = [
   {
-    slug: 'v22-safe-dial',
-    title: '1. Safe Dial 保險櫃密碼盤',
-    tagline: 'Outer coarse · inner fine',
-    desc: '右下旋鈕長按展開保險櫃拨盤。外圈拨到 name 前綴段（Recent / A-D / SAL...），內圈精選 8-12 個 preset 中央大卡顯示完整 name+kcal+macro。兩手勢到任意 preset。',
+    slug: 'v25-picker',
+    title: '1. iOS Picker 經典時間選擇器',
+    tagline: 'Vertical scroll wheel · snap · loop',
+    desc: '右下小圓點按鈕（呼吸動效）→ 全屏 picker spinner。垂直滾輪首尾循環，中間高亮一行 lime 大字 + name+kcal+macro。tap 高亮 = 記錄，長按 = 編輯/刪除。',
   },
   {
-    slug: 'v23-slot-reel',
-    title: '2. Slot Reel 老虎機滾筒',
-    tagline: '3 reels · parallel filter',
-    desc: '右下機械窗口長按展開老虎機。3 滾筒並行篩選（頻率 × name 片段 × kcal 段），中央命中 preset 立即顯示。100+ preset 壓到 1-5 個候選。',
+    slug: 'v26-flip',
+    title: '2. Split Flap 機械翻頁板',
+    tagline: 'Airport board · mechanical flip',
+    desc: '右下小圓點按鈕（顆粒翻動效）→ 老式機場航班翻頁板。每行 = 一張卡片，滾動時上下機械翻轉，dot matrix 字體 + 鉚釘邊框。首尾循環。',
   },
   {
-    slug: 'v24-compass',
-    title: '3. Compass Lens 航海羅盤',
-    tagline: 'Intent direction · velocity-layered',
-    desc: '右下羅盤指針常駐。長按展開大盤，拇指畫圓選方向（Recent/Rare/Light/Dense/Low/High kcal），同一畫圓手勢快推跳片段、慢推單步。',
+    slug: 'v27-film',
+    title: '3. 35mm Film Strip 膠卷',
+    tagline: 'Cinema reel · perforated edges',
+    desc: '右下小圓點按鈕（齒輪動效）→ 35mm 膠卷垂直滾動。每幀 = 一個 preset，兩側有膠卷齒孔同步移動，frame caption 字體。電影感首尾循環。',
   },
 ];
 
@@ -28,12 +28,12 @@ export default function PrototypeIndexPage() {
     <div className="min-h-dvh bg-ink text-text px-5 py-8 max-w-md mx-auto">
       <header className="mb-7">
         <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-2">prototype · add meal</p>
-        <h1 className="display-roman text-[30px] leading-tight">3 種轉盤式入口</h1>
+        <h1 className="display-roman text-[30px] leading-tight">3 種垂直 picker 入口</h1>
         <p className="text-[13px] text-text-3 mt-2">
-          右下常駐按鈕（有動效）→ 點擊進完整 CRUD · 轉盤心智 · 解決 100+ preset 不滑列表 / 不搜索 / 不分類。
+          機制相同：右下角小圓點 → 垂直滾輪 picker（首尾循環）+ 中央 lime 大字。視覺三套：iOS 經典 / 機械翻頁板 / 35mm 膠卷。
         </p>
         <p className="text-[11px] text-text-4 mt-2 font-mono">
-          收斂自和 codex 兩輪討論：共識 = 拆「粗定位 + 精定位」兩個手勢。
+          tap 高亮行 = 記錄這一筆 · 長按高亮行 = 編輯 / 刪除 · 頂部 + 新建。
         </p>
       </header>
       <ul className="space-y-2.5">
