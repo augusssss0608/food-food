@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
 import { RealHomeShell } from '../_lib/real-home';
 import { useHomeData } from '../_lib/use-home-data';
