@@ -9,12 +9,12 @@ const VARIANTS: { slug: string; title: string; tagline: string; desc: string; gr
     desc: '取消 + 按鈕，「今日已記錄」末尾就是輸入入口。MyFitnessPal Quick Add 心智。' },
   { slug: 'v7-dial', title: '3. Macro Dial', tagline: 'iPod click wheel', group: 'old',
     desc: '主頁 + → 拇指旋轉切餐，中心大卡顯示完整 macro，每過一項輕震。' },
-  { slug: 'v9-radial', title: '4. Radial Bloom v2', tagline: 'Instant fan-out', group: 'new',
-    desc: '主頁不變。右下圓點按下即綻放 4 satellite（無延時），滑到目標釋放。第 4 顆 = 進入翻牌全列表。' },
-  { slug: 'v11-composer', title: '5. Bottom Composer v2', tagline: 'Capsule → flip dial', group: 'new',
-    desc: '主頁不變。底部膠囊拉起 → 翻牌單卡 + 左右切換 + 頂部 AI 推薦 3 chip + 搜尋，不再用滑動 grid。' },
-  { slug: 'v13-tray', title: '6. Smart Tray', tagline: 'Bottom chip rail', group: 'new',
-    desc: '主頁不變。屏底 3 個 AI 推薦 chip 永遠暴露，tap chip 直接記錄；⋯ 拉起翻牌看全部。零拉起體驗。' },
+  { slug: 'v14-dock', title: '4. Dock Grid', tagline: 'iOS-style 5tab + 3×3', group: 'new',
+    desc: '主頁不變。屏底 5 tab（★/早/午/晚/零）+ 3×3 chip grid。tap chip 記錄，長按 chip 進入摇晃編輯。' },
+  { slug: 'v15-bands', title: '5. Time Bands', tagline: '4 時段水平帶', group: 'new',
+    desc: '主頁不變。屏底 4 行（早午晚零）並列，每行 3 chip 永遠暴露，當前時段那行高亮。長按 chip 輪換。' },
+  { slug: 'v16-cluster', title: '6. Cluster Map', tagline: 'Spatial 4-cluster', group: 'new',
+    desc: '主頁不變。屏底 4 cluster 圓形聚類（早午晚零），當前時段放大居中。tap 聚類內 chip 直接記錄。' },
 ];
 
 export default function PrototypeIndexPage() {
@@ -42,7 +42,7 @@ export default function PrototypeIndexPage() {
           </li>
         ))}
       </ul>
-      <p className="text-[10px] uppercase tracking-[0.24em] text-accent font-mono mb-2">第二輪 · 入口創意（主頁不變）</p>
+      <p className="text-[10px] uppercase tracking-[0.24em] text-accent font-mono mb-2">第二輪 · 預篩分桶（不翻牌不搜索）</p>
       <ul className="space-y-2.5">
         {VARIANTS.filter((v) => v.group === 'new').map((v) => (
           <li key={v.slug}>
