@@ -2,17 +2,25 @@ import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
-const VARIANTS: { slug: string; title: string; tagline: string; desc: string; group?: 'old' | 'new' }[] = [
-  { slug: 'v3-fab', title: '1. FAB Quick Actions', tagline: 'Floating action button', group: 'old',
-    desc: '主屏右下浮動 FAB → 扇形展開 3 個子按鈕，各自全屏。' },
-  { slug: 'v5-ledger', title: '2. Today Ledger', tagline: 'Inline insert into diary', group: 'old',
-    desc: '取消 + 按鈕，「今日已記錄」末尾就是輸入入口。MyFitnessPal Quick Add 心智。' },
-  { slug: 'v7-dial', title: '3. Macro Dial', tagline: 'iPod click wheel', group: 'old',
-    desc: '主頁 + → 拇指旋轉切餐，中心大卡顯示完整 macro，每過一項輕震。' },
-  { slug: 'v20-atlas', title: '4. Stamp Atlas', tagline: 'High-density contact sheet', group: 'new',
-    desc: '主頁不擋。右下印泥點 → 展開一張高密度印章圖譜，每個 preset 自動生成字根+kcal 視覺重量，拇指 sweep 時 lens 放大臨近印章顯示完整名稱+kcal，CRUD 在長按工具條完成。' },
-  { slug: 'v21-palette', title: '5. Tasting Palette', tagline: 'Data-driven 2D scatter', group: 'new',
-    desc: '主頁不擋。左側色痕 → 二維調色板：x 軸 kcal 密度 / y 軸 蛋白纖維，preset 散佈成色斑，拇指 lens 放大區域內名稱，記憶靠位置自然形成。' },
+const VARIANTS: { slug: string; title: string; tagline: string; desc: string }[] = [
+  {
+    slug: 'v22-safe-dial',
+    title: '1. Safe Dial 保險櫃密碼盤',
+    tagline: 'Outer coarse · inner fine',
+    desc: '右下旋鈕長按展開保險櫃拨盤。外圈拨到 name 前綴段（Recent / A-D / SAL...），內圈精選 8-12 個 preset 中央大卡顯示完整 name+kcal+macro。兩手勢到任意 preset。',
+  },
+  {
+    slug: 'v23-slot-reel',
+    title: '2. Slot Reel 老虎機滾筒',
+    tagline: '3 reels · parallel filter',
+    desc: '右下機械窗口長按展開老虎機。3 滾筒並行篩選（頻率 × name 片段 × kcal 段），中央命中 preset 立即顯示。100+ preset 壓到 1-5 個候選。',
+  },
+  {
+    slug: 'v24-compass',
+    title: '3. Compass Lens 航海羅盤',
+    tagline: 'Intent direction · velocity-layered',
+    desc: '右下羅盤指針常駐。長按展開大盤，拇指畫圓選方向（Recent/Rare/Light/Dense/Low/High kcal），同一畫圓手勢快推跳片段、慢推單步。',
+  },
 ];
 
 export default function PrototypeIndexPage() {
@@ -20,29 +28,16 @@ export default function PrototypeIndexPage() {
     <div className="min-h-dvh bg-ink text-text px-5 py-8 max-w-md mx-auto">
       <header className="mb-7">
         <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-2">prototype · add meal</p>
-        <h1 className="display-roman text-[30px] leading-tight">5 種新增餐入口</h1>
-        <p className="text-[13px] text-text-3 mt-2">主頁結構保留 + 不擋主屏 + 不分類 + 容納 100+ preset。</p>
+        <h1 className="display-roman text-[30px] leading-tight">3 種轉盤式入口</h1>
+        <p className="text-[13px] text-text-3 mt-2">
+          右下常駐按鈕（有動效）→ 點擊進完整 CRUD · 轉盤心智 · 解決 100+ preset 不滑列表 / 不搜索 / 不分類。
+        </p>
+        <p className="text-[11px] text-text-4 mt-2 font-mono">
+          收斂自和 codex 兩輪討論：共識 = 拆「粗定位 + 精定位」兩個手勢。
+        </p>
       </header>
-      <p className="text-[10px] uppercase tracking-[0.24em] text-text-3 font-mono mb-2">第一輪 · 慣常模式</p>
-      <ul className="space-y-2.5 mb-7">
-        {VARIANTS.filter((v) => v.group !== 'new').map((v) => (
-          <li key={v.slug}>
-            <Link
-              href={`/prototype/${v.slug}`}
-              className="block bg-surface border border-hairline rounded-xl px-4 py-3.5 hover:border-hairline-strong hover:bg-surface-2 transition-colors active:scale-[0.99]"
-            >
-              <div className="flex items-baseline justify-between gap-2 mb-1">
-                <p className="text-[14px] font-medium text-text">{v.title}</p>
-                <p className="text-[10px] font-mono text-text-3 uppercase tracking-wider">{v.tagline}</p>
-              </div>
-              <p className="text-[12px] text-text-3 leading-snug">{v.desc}</p>
-            </Link>
-          </li>
-        ))}
-      </ul>
-      <p className="text-[10px] uppercase tracking-[0.24em] text-accent font-mono mb-2">第二輪 · 高密度識別面 · 字根+空間記憶</p>
       <ul className="space-y-2.5">
-        {VARIANTS.filter((v) => v.group === 'new').map((v) => (
+        {VARIANTS.map((v) => (
           <li key={v.slug}>
             <Link
               href={`/prototype/${v.slug}`}

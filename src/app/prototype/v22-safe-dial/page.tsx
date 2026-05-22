@@ -1,15 +1,15 @@
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { loadHomeSnapshot } from '@/lib/home-snapshot';
-import { FabContent } from './fab-content';
+import { SafeDialContent } from './safe-dial-content';
 
 export const dynamic = 'force-dynamic';
 
-export default async function FabPage() {
+export default async function SafeDialPage() {
   const supa = await createSupabaseServerClient();
   const { data, error } = await supa.auth.getClaims();
   if (error || !data?.claims?.sub) redirect('/login');
   const snapshot = await loadHomeSnapshot(supa, data.claims.sub as string);
   if (!snapshot) redirect('/setup');
-  return <FabContent initialSnapshot={snapshot} />;
+  return <SafeDialContent initialSnapshot={snapshot} />;
 }
