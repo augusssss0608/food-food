@@ -1,15 +1,15 @@
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { loadHomeSnapshot } from '@/lib/home-snapshot';
-import { PickerContent } from './picker-content';
+import { TwinContent } from './twin-content';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PickerPage() {
+export default async function TwinPage() {
   const supa = await createSupabaseServerClient();
   const { data, error } = await supa.auth.getClaims();
   if (error || !data?.claims?.sub) redirect('/login');
   const snapshot = await loadHomeSnapshot(supa, data.claims.sub as string);
   if (!snapshot) redirect('/setup');
-  return <PickerContent initialSnapshot={snapshot} />;
+  return <TwinContent initialSnapshot={snapshot} />;
 }

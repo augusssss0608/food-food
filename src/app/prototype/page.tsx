@@ -4,22 +4,22 @@ export const dynamic = 'force-dynamic';
 
 const VARIANTS: { slug: string; title: string; tagline: string; desc: string }[] = [
   {
-    slug: 'v25-picker',
-    title: '1. iOS Picker 經典時間選擇器',
-    tagline: 'Vertical scroll wheel · snap · loop',
-    desc: '右下小圓點按鈕（呼吸動效）→ 全屏 picker spinner。垂直滾輪首尾循環，中間高亮一行 lime 大字 + name+kcal+macro。tap 高亮 = 記錄，長按 = 編輯/刪除。',
+    slug: 'v28-twin',
+    title: '1. Editorial Twin Picker',
+    tagline: 'Refined · iOS UIDatePicker',
+    desc: '右下圓鈕呼吸動效 → 雙列 picker：左列模式（近期 / 菜單 / 拍照）上下滑，右列跟著切換內容。Apple Watch face 編輯感。',
   },
   {
-    slug: 'v26-flip',
-    title: '2. Split Flap 機械翻頁板',
-    tagline: 'Airport board · mechanical flip',
-    desc: '右下小圓點按鈕（顆粒翻動效）→ 老式機場航班翻頁板。每行 = 一張卡片，滾動時上下機械翻轉，dot matrix 字體 + 鉚釘邊框。首尾循環。',
+    slug: 'v29-console',
+    title: '2. Industrial Twin LCD',
+    tagline: 'Brutalist · brushed metal',
+    desc: '右下方形按鈕 → 雙 LCD 螢幕：左 LCD 模式輪轉，右 LCD 顯示 preset。7-segment 字體 + 鉚釘 brushed metal + 警示 LED。',
   },
   {
-    slug: 'v27-film',
-    title: '3. 35mm Film Strip 膠卷',
-    tagline: 'Cinema reel · perforated edges',
-    desc: '右下小圓點按鈕（齒輪動效）→ 35mm 膠卷垂直滾動。每幀 = 一個 preset，兩側有膠卷齒孔同步移動，frame caption 字體。電影感首尾循環。',
+    slug: 'v30-codex',
+    title: '3. Folding Codex',
+    tagline: 'Antique · Fraunces serif',
+    desc: '右下書本側按鈕 → 古籍展開：左書脊章節書籤上下滑，右書頁顯示內容。Fraunces 衍線斜體 + 米色紙張噪點 + 燙金邊。',
   },
 ];
 
@@ -28,12 +28,9 @@ export default function PrototypeIndexPage() {
     <div className="min-h-dvh bg-ink text-text px-5 py-8 max-w-md mx-auto">
       <header className="mb-7">
         <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-2">prototype · add meal</p>
-        <h1 className="display-roman text-[30px] leading-tight">3 種垂直 picker 入口</h1>
+        <h1 className="display-roman text-[30px] leading-tight">3 種雙列 picker 入口</h1>
         <p className="text-[13px] text-text-3 mt-2">
-          機制相同：右下角小圓點 → 垂直滾輪 picker（首尾循環）+ 中央 lime 大字。視覺三套：iOS 經典 / 機械翻頁板 / 35mm 膠卷。
-        </p>
-        <p className="text-[11px] text-text-4 mt-2 font-mono">
-          tap 高亮行 = 記錄這一筆 · 長按高亮行 = 編輯 / 刪除 · 頂部 + 新建。
+          機制相同：右下按鈕 → 全屏雙列 picker。左列模式（近期 / 菜單 / 拍照）上下滑切換，右列跟著變。視覺三套完全不同的美學。
         </p>
       </header>
       <ul className="space-y-2.5">
