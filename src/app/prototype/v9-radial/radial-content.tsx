@@ -4,16 +4,23 @@ import { PrototypeShell } from '../_lib/prototype-shell';
 import { RealHomeShell } from '../_lib/real-home';
 import { useHomeData } from '../_lib/use-home-data';
 import { MockPresetForm } from '../_lib/preset-manager';
-import type { HomeSnapshot, UserMealPreset } from '@/lib/home-snapshot';
+import { PresetDialSheet, pickAIRecommended } from '../_lib/preset-dial-sheet';
+import type { HomeSnapshot } from '@/lib/home-snapshot';
 
 /**
- * Radial Bloom — 主页结构保留不变。
- * 入口：右下角一颗小圆点，长按 200ms → 4 个 satellite 沿拇指弧绽放，
- * 拇指继续滑到目标释放即执行。整套交互一根手指完成、不离屏。
+ * Radial Bloom v2 — 主页结构保留。
+ * 入口：右下角常驻小圆点。
+ *
+ * 关键改良 vs v1：
+ * - 去掉 200ms 长按延时 → pointerDown 立即 bloom（手感快）
+ * - 第 4 颗 satellite 改成「翻牌」入口 → 拉起 PresetDialSheet（翻牌选餐 + 搜索）
+ *   不再开 grid sheet，避免「选完按钮又翻列表」的两段式路径
+ *
+ * 整套交互：按下 → 滑到目标 → 抬手 = 一次手势完成。
  */
 type Petal = {
-  key: 'p1' | 'p2' | 'photo' | 'all';
-  angle: number; // degrees, atan2 polar，下方为正
+  key: 'p0' | 'p1' | 'p2' | 'dial';
+  angle: number;
   label: string;
   sub?: string;
   glyph: string;
@@ -25,58 +32,56 @@ export function RadialContent({ initialSnapshot }: { initialSnapshot: HomeSnapsh
   const api = useHomeData(initialSnapshot);
   const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
-  const [showAll, setShowAll] = useState(false);
+  const [dialOpen, setDialOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [hint, setHint] = useState(true);
-  const longPressRef = useRef<number | null>(null);
   const centerRef = useRef<{ x: number; y: number } | null>(null);
-  const knobRef = useRef<HTMLButtonElement>(null);
 
-  const [p1, p2] = api.presets;
+  // top 3 preset 用 AI 推荐（按时间挑），剩 1 个 petal 是 dial
+  const recommended = pickAIRecommended(api.presets);
+  const [r0, r1, r2] = recommended;
 
   const petals: Petal[] = [
     {
-      key: 'p1',
+      key: 'p0',
       angle: -150,
-      label: p1 ? p1.name.slice(0, 4) : '無 preset',
-      sub: p1 ? `${Math.round(p1.kcal)}` : '—',
+      label: r0 ? r0.name.slice(0, 5) : '—',
+      sub: r0 ? `${Math.round(r0.kcal)}` : '',
       glyph: '★',
     },
     {
-      key: 'p2',
+      key: 'p1',
       angle: -120,
-      label: p2 ? p2.name.slice(0, 4) : '無 preset',
-      sub: p2 ? `${Math.round(p2.kcal)}` : '—',
+      label: r1 ? r1.name.slice(0, 5) : '—',
+      sub: r1 ? `${Math.round(r1.kcal)}` : '',
       glyph: '☆',
     },
     {
-      key: 'photo',
+      key: 'p2',
       angle: -90,
-      label: '拍照',
-      glyph: '◉',
+      label: r2 ? r2.name.slice(0, 5) : '—',
+      sub: r2 ? `${Math.round(r2.kcal)}` : '',
+      glyph: '☆',
     },
     {
-      key: 'all',
+      key: 'dial',
       angle: -60,
       label: '全部',
-      glyph: '⋯',
+      sub: `${api.presets.length}`,
+      glyph: '⟳',
     },
   ];
 
   function bloom() {
     setOpen(true);
     setHint(false);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(12);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(8);
   }
 
   function reset() {
     setOpen(false);
     setActiveIdx(null);
     centerRef.current = null;
-    if (longPressRef.current != null) {
-      window.clearTimeout(longPressRef.current);
-      longPressRef.current = null;
-    }
   }
 
   function onPointerDown(e: React.PointerEvent<HTMLButtonElement>) {
@@ -84,8 +89,7 @@ export function RadialContent({ initialSnapshot }: { initialSnapshot: HomeSnapsh
     const rect = e.currentTarget.getBoundingClientRect();
     centerRef.current = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-    if (longPressRef.current != null) window.clearTimeout(longPressRef.current);
-    longPressRef.current = window.setTimeout(() => bloom(), 200);
+    bloom();
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLButtonElement>) {
@@ -94,7 +98,7 @@ export function RadialContent({ initialSnapshot }: { initialSnapshot: HomeSnapsh
     const dy = e.clientY - centerRef.current.y;
     const r = Math.sqrt(dx * dx + dy * dy);
     if (r < 28) {
-      setActiveIdx(null);
+      if (activeIdx !== null) setActiveIdx(null);
       return;
     }
     const theta = (Math.atan2(dy, dx) * 180) / Math.PI;
@@ -111,10 +115,6 @@ export function RadialContent({ initialSnapshot }: { initialSnapshot: HomeSnapsh
   }
 
   async function onPointerUp() {
-    if (longPressRef.current != null) {
-      window.clearTimeout(longPressRef.current);
-      longPressRef.current = null;
-    }
     if (open && activeIdx != null) {
       const petal = petals[activeIdx];
       reset();
@@ -125,22 +125,17 @@ export function RadialContent({ initialSnapshot }: { initialSnapshot: HomeSnapsh
   }
 
   async function executePetal(petal: Petal) {
-    if (petal.key === 'p1' && p1) {
-      await api.recordCustomPreset(p1);
-    } else if (petal.key === 'p2' && p2) {
-      await api.recordCustomPreset(p2);
-    } else if (petal.key === 'photo') {
-      // prototype 不接 AI
-      // 用 toast 提示即可
-      // useHomeData 的 toast 没暴露出来，让用户在 sheet 里看
-      setShowAll(true);
-    } else if (petal.key === 'all') {
-      setShowAll(true);
+    if (petal.key === 'dial') {
+      setDialOpen(true);
+      return;
     }
+    const map: Record<string, typeof r0> = { p0: r0, p1: r1, p2: r2 };
+    const target = map[petal.key];
+    if (target) await api.recordCustomPreset(target);
   }
 
   return (
-    <PrototypeShell title="4. Radial Bloom">
+    <PrototypeShell title="4. Radial Bloom v2">
       <RealHomeShell api={api} rightAction={null} />
 
       {/* 长按变暗遮罩 */}
@@ -149,40 +144,39 @@ export function RadialContent({ initialSnapshot }: { initialSnapshot: HomeSnapsh
         style={{ opacity: open ? 1 : 0 }}
       />
 
-      {/* hint 提示泡泡（首次访问） */}
+      {/* hint 提示（首次） */}
       {hint && !open && (
         <div
           className="fixed z-[71] right-20 bg-surface-2 border border-hairline px-2.5 py-1.5 rounded-md"
           style={{ bottom: 'calc(env(safe-area-inset-bottom) + 1.6rem)' }}
         >
           <p className="text-[10px] font-mono uppercase tracking-wider text-text-2 whitespace-nowrap">
-            hold to bloom →
+            press &amp; flick →
           </p>
         </div>
       )}
 
-      {/* knob + bloom */}
+      {/* knob + 4 petals */}
       <div
         className="fixed right-6 z-[70] pointer-events-none"
         style={{ bottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}
       >
         <div className="relative" style={{ width: 56, height: 56 }}>
-          {/* 4 个花瓣 */}
           {petals.map((p, i) => {
             const rad = (p.angle * Math.PI) / 180;
             const dx = Math.cos(rad) * RADIUS;
             const dy = Math.sin(rad) * RADIUS;
             const active = open && activeIdx === i;
-            const disabled = (p.key === 'p1' && !p1) || (p.key === 'p2' && !p2);
+            const disabled = p.key !== 'dial' && !{ p0: r0, p1: r1, p2: r2 }[p.key];
             return (
               <div
                 key={p.key}
-                className={`petal ${open ? 'petal-open' : ''} ${active ? 'petal-active' : ''} ${disabled ? 'petal-disabled' : ''}`}
+                className={`petal ${open ? 'petal-open' : ''} ${active ? 'petal-active' : ''} ${disabled ? 'petal-disabled' : ''} ${p.key === 'dial' ? 'petal-dial' : ''}`}
                 style={{
                   transform: open
                     ? `translate(${dx}px, ${dy}px) scale(1)`
                     : 'translate(0,0) scale(0.3)',
-                  transitionDelay: open ? `${i * 30}ms` : '0ms',
+                  transitionDelay: open ? `${i * 25}ms` : '0ms',
                 }}
                 aria-hidden
               >
@@ -193,11 +187,9 @@ export function RadialContent({ initialSnapshot }: { initialSnapshot: HomeSnapsh
             );
           })}
 
-          {/* 中央 knob */}
           <button
-            ref={knobRef}
             type="button"
-            aria-label="hold to bloom"
+            aria-label="press to bloom"
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -211,17 +203,18 @@ export function RadialContent({ initialSnapshot }: { initialSnapshot: HomeSnapsh
         </div>
       </div>
 
-      {/* 全部 preset 抽屉 */}
-      {showAll && (
-        <AllPresetSheet
+      {/* dial sheet */}
+      {dialOpen && (
+        <PresetDialSheet
           presets={api.presets}
           recordingId={api.recordingId}
+          aiRecommended={recommended}
           onPick={async (p) => {
             await api.recordCustomPreset(p);
-            setShowAll(false);
+            setDialOpen(false);
           }}
-          onCreate={() => { api.clearDuplicate(); setShowAll(false); setCreateOpen(true); }}
-          onClose={() => setShowAll(false)}
+          onCreate={() => { api.clearDuplicate(); setDialOpen(false); setCreateOpen(true); }}
+          onClose={() => setDialOpen(false)}
         />
       )}
 
@@ -256,62 +249,7 @@ export function RadialContent({ initialSnapshot }: { initialSnapshot: HomeSnapsh
   );
 }
 
-function AllPresetSheet({
-  presets, recordingId, onPick, onCreate, onClose,
-}: {
-  presets: UserMealPreset[];
-  recordingId: string | null;
-  onPick: (p: UserMealPreset) => void;
-  onCreate: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[150]" style={{ animation: 'ff-fade-in 0.18s ease-out both' }}>
-      <div className="absolute inset-0 bg-ink/70 backdrop-blur-sm" onClick={onClose} />
-      <div
-        className="absolute left-0 right-0 bottom-0 bg-surface-2 border-t border-accent/40 px-4 pt-4"
-        style={{
-          paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.25rem)',
-          animation: 'drawer-up 0.28s var(--ease-out-soft) both',
-          maxHeight: '60vh',
-        }}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] uppercase tracking-[0.24em] text-accent font-mono">all menus</p>
-          <button onClick={onClose} className="text-[11px] text-text-3 font-mono active:scale-95">close</button>
-        </div>
-        <div className="grid grid-cols-2 gap-2 overflow-y-auto" style={{ maxHeight: 'calc(60vh - 80px)' }}>
-          {presets.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => onPick(p)}
-              disabled={recordingId != null}
-              className="bg-surface border border-hairline px-3 py-2.5 text-left hover:border-accent/60 active:scale-95 transition-all disabled:opacity-50 rounded"
-            >
-              <p className="text-[12px] text-text font-medium truncate">{p.name}</p>
-              <p className="text-[11px] font-mono text-accent tabular mt-0.5">
-                {Math.round(p.kcal)}<span className="text-[9px] text-text-3 ml-0.5">kcal</span>
-              </p>
-            </button>
-          ))}
-          <button
-            onClick={onCreate}
-            className="bg-surface border-2 border-dashed border-hairline-strong text-text-3 hover:text-accent hover:border-accent/60 active:scale-95 transition-all py-3 text-[11px] font-mono uppercase tracking-wider rounded"
-          >
-            ＋ new
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const styles = `
-@keyframes drawer-up {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-
 .knob {
   position: absolute;
   inset: 0;
@@ -329,9 +267,7 @@ const styles = `
     0 6px 14px -4px rgba(0,0,0,0.6),
     0 1px 0 rgba(255,255,255,0.05) inset;
 }
-.knob:active {
-  transform: scale(0.94);
-}
+.knob:active { transform: scale(0.94); }
 .knob-open {
   background: var(--color-accent);
   border-color: var(--color-accent);
@@ -341,8 +277,7 @@ const styles = `
   transform: scale(1.08);
 }
 .knob-dot {
-  width: 10px;
-  height: 10px;
+  width: 10px; height: 10px;
   border-radius: 50%;
   background: var(--color-accent);
   box-shadow: 0 0 8px rgba(200,255,0,0.6);
@@ -351,8 +286,7 @@ const styles = `
 .knob-open .knob-dot {
   background: var(--color-accent-ink);
   box-shadow: none;
-  width: 6px;
-  height: 6px;
+  width: 6px; height: 6px;
 }
 .knob-pulse {
   position: absolute;
@@ -370,20 +304,15 @@ const styles = `
 
 .petal {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 56px;
-  height: 56px;
-  margin-left: -28px;
-  margin-top: -28px;
+  left: 50%; top: 50%;
+  width: 56px; height: 56px;
+  margin-left: -28px; margin-top: -28px;
   border-radius: 50%;
   background: rgba(28, 28, 34, 0.92);
   border: 1px solid var(--color-hairline-strong);
   backdrop-filter: blur(8px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
   gap: 1px;
   opacity: 0;
   pointer-events: none;
@@ -394,23 +323,25 @@ const styles = `
   z-index: 5;
   color: var(--color-text-2);
 }
-.petal-open {
-  opacity: 1;
-}
+.petal-open { opacity: 1; }
 .petal-active {
   background: var(--color-accent);
   border-color: var(--color-accent);
   color: var(--color-accent-ink);
-  transform-origin: center;
   box-shadow: 0 0 16px rgba(200,255,0,0.5);
 }
-.petal-disabled {
-  opacity: 0.35;
+.petal-disabled { opacity: 0.35; }
+.petal-dial {
+  background: rgba(200, 255, 0, 0.10);
+  border-color: rgba(200, 255, 0, 0.4);
+  color: var(--color-accent);
+}
+.petal-dial.petal-active {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
 }
 .petal-glyph {
-  font-size: 16px;
-  line-height: 1;
-  font-weight: 600;
+  font-size: 16px; line-height: 1; font-weight: 600;
 }
 .petal-label {
   font-family: 'JetBrains Mono', monospace;
@@ -418,9 +349,7 @@ const styles = `
   text-transform: lowercase;
   letter-spacing: 0.04em;
   max-width: 48px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .petal-sub {
   font-family: 'JetBrains Mono', monospace;

@@ -9,14 +9,12 @@ const VARIANTS: { slug: string; title: string; tagline: string; desc: string; gr
     desc: '取消 + 按鈕，「今日已記錄」末尾就是輸入入口。MyFitnessPal Quick Add 心智。' },
   { slug: 'v7-dial', title: '3. Macro Dial', tagline: 'iPod click wheel', group: 'old',
     desc: '主頁 + → 拇指旋轉切餐，中心大卡顯示完整 macro，每過一項輕震。' },
-  { slug: 'v9-radial', title: '4. Radial Bloom', tagline: 'Thumb-arc fan-out', group: 'new',
-    desc: '主頁不變。右下小圓點長按 → 拇指可達弧上「綻放」4 個衛星按鈕，順勢滑釋放。' },
-  { slug: 'v10-toss', title: '5. Magnetic Toss', tagline: 'Drag & snap to preset', group: 'new',
-    desc: '主頁不變。長按右上 + 拖出幽靈卡，底部 preset rail 浮現，磁吸貼合釋放即記錄。' },
-  { slug: 'v11-composer', title: '6. Bottom Composer', tagline: 'Ambient capsule', group: 'new',
-    desc: '主頁不變。底部常駐細長膠囊「+ still hungry?」，點/上拉展開 preset · 拍 · 寫三 tab 面板。' },
-  { slug: 'v12-deck', title: '7. Pocket Deck', tagline: 'Always-visible card stack', group: 'new',
-    desc: '主頁不變。右下角 4 張 preset 卡牌錯位疊放，點頂張直接記錄，上滑頂張切下一張。' },
+  { slug: 'v9-radial', title: '4. Radial Bloom v2', tagline: 'Instant fan-out', group: 'new',
+    desc: '主頁不變。右下圓點按下即綻放 4 satellite（無延時），滑到目標釋放。第 4 顆 = 進入翻牌全列表。' },
+  { slug: 'v11-composer', title: '5. Bottom Composer v2', tagline: 'Capsule → flip dial', group: 'new',
+    desc: '主頁不變。底部膠囊拉起 → 翻牌單卡 + 左右切換 + 頂部 AI 推薦 3 chip + 搜尋，不再用滑動 grid。' },
+  { slug: 'v13-tray', title: '6. Smart Tray', tagline: 'Bottom chip rail', group: 'new',
+    desc: '主頁不變。屏底 3 個 AI 推薦 chip 永遠暴露，tap chip 直接記錄；⋯ 拉起翻牌看全部。零拉起體驗。' },
 ];
 
 export default function PrototypeIndexPage() {
@@ -24,7 +22,7 @@ export default function PrototypeIndexPage() {
     <div className="min-h-dvh bg-ink text-text px-5 py-8 max-w-md mx-auto">
       <header className="mb-7">
         <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-2">prototype · add meal</p>
-        <h1 className="display-roman text-[30px] leading-tight">7 種新增餐入口</h1>
+        <h1 className="display-roman text-[30px] leading-tight">6 種新增餐入口</h1>
         <p className="text-[13px] text-text-3 mt-2">主頁結構保留，只變化新增那一刻的入口和交互。</p>
       </header>
       <p className="text-[10px] uppercase tracking-[0.24em] text-text-3 font-mono mb-2">第一輪 · 慣常模式</p>
