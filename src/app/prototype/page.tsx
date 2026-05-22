@@ -9,12 +9,10 @@ const VARIANTS: { slug: string; title: string; tagline: string; desc: string; gr
     desc: '取消 + 按鈕，「今日已記錄」末尾就是輸入入口。MyFitnessPal Quick Add 心智。' },
   { slug: 'v7-dial', title: '3. Macro Dial', tagline: 'iPod click wheel', group: 'old',
     desc: '主頁 + → 拇指旋轉切餐，中心大卡顯示完整 macro，每過一項輕震。' },
-  { slug: 'v17-spatial', title: '4. Spatial Pop', tagline: 'Mini pill + radial fan', group: 'new',
-    desc: '主頁完全不被擋。右下小 pill（28×100）顯示當前推薦，tap pill → 12 chip 像粒子環繞指尖展開。' },
-  { slug: 'v18-island', title: '5. Dynamic Island', tagline: 'Top morphing capsule', group: 'new',
-    desc: '主頁完全不被擋。頂部 iOS 風 Dynamic Island 胶囊，tap morph 展開大島，chip 從內湧出。' },
-  { slug: 'v19-edge', title: '6. Edge Swipe', tagline: 'Hidden side drawers', group: 'new',
-    desc: '主頁完全不被擋。屏幕左/右邊緣各一條 3px 細線，橫滑帶出對應方向的時段 chip drawer。' },
+  { slug: 'v20-atlas', title: '4. Stamp Atlas', tagline: 'High-density contact sheet', group: 'new',
+    desc: '主頁不擋。右下印泥點 → 展開一張高密度印章圖譜，每個 preset 自動生成字根+kcal 視覺重量，拇指 sweep 時 lens 放大臨近印章顯示完整名稱+kcal，CRUD 在長按工具條完成。' },
+  { slug: 'v21-palette', title: '5. Tasting Palette', tagline: 'Data-driven 2D scatter', group: 'new',
+    desc: '主頁不擋。左側色痕 → 二維調色板：x 軸 kcal 密度 / y 軸 蛋白纖維，preset 散佈成色斑，拇指 lens 放大區域內名稱，記憶靠位置自然形成。' },
 ];
 
 export default function PrototypeIndexPage() {
@@ -22,8 +20,8 @@ export default function PrototypeIndexPage() {
     <div className="min-h-dvh bg-ink text-text px-5 py-8 max-w-md mx-auto">
       <header className="mb-7">
         <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-2">prototype · add meal</p>
-        <h1 className="display-roman text-[30px] leading-tight">6 種新增餐入口</h1>
-        <p className="text-[13px] text-text-3 mt-2">主頁結構保留，只變化新增那一刻的入口和交互。</p>
+        <h1 className="display-roman text-[30px] leading-tight">5 種新增餐入口</h1>
+        <p className="text-[13px] text-text-3 mt-2">主頁結構保留 + 不擋主屏 + 不分類 + 容納 100+ preset。</p>
       </header>
       <p className="text-[10px] uppercase tracking-[0.24em] text-text-3 font-mono mb-2">第一輪 · 慣常模式</p>
       <ul className="space-y-2.5 mb-7">
@@ -42,7 +40,7 @@ export default function PrototypeIndexPage() {
           </li>
         ))}
       </ul>
-      <p className="text-[10px] uppercase tracking-[0.24em] text-accent font-mono mb-2">第二輪 · 入口不挡主屏 · 預篩分桶</p>
+      <p className="text-[10px] uppercase tracking-[0.24em] text-accent font-mono mb-2">第二輪 · 高密度識別面 · 字根+空間記憶</p>
       <ul className="space-y-2.5">
         {VARIANTS.filter((v) => v.group === 'new').map((v) => (
           <li key={v.slug}>
