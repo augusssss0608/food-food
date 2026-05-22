@@ -9,14 +9,14 @@ const VARIANTS: { slug: string; title: string; tagline: string; desc: string; gr
     desc: '取消 + 按鈕，「今日已記錄」末尾就是輸入入口。MyFitnessPal Quick Add 心智。' },
   { slug: 'v7-dial', title: '3. Macro Dial', tagline: 'iPod click wheel', group: 'old',
     desc: '主頁 + → 拇指旋轉切餐，中心大卡顯示完整 macro，每過一項輕震。' },
-  { slug: 'v9-receipt', title: '4. Thermal Receipt', tagline: 'POS / dot matrix print', group: 'new',
-    desc: '主屏 = 餐廳熱感小票，新增 = 在最末尾「繼續打印」一行。撕紙、印章戳、SUBTOTAL。' },
-  { slug: 'v10-spike', title: '5. Order Spike', tagline: 'Kitchen ticket spike', group: 'new',
-    desc: '中央一根鋼針，preset 票紙從底部抽屜「拋」上去，刺穿堆疊。角度錯落、紙片有皺。' },
-  { slug: 'v11-plate', title: '6. Plate Composition', tagline: 'Mondrian on a dish', group: 'new',
-    desc: '一日 = 一幅色塊構圖。preset 按宏量染色，飛入大圓盤、spiral packing 自動排布。' },
-  { slug: 'v12-apothecary', title: '7. Apothecary Counter', tagline: 'Lab dosing station', group: 'new',
-    desc: '主燒瓶顯示一日吸收，HOLD 試管 → 傾倒、液面分層上升。化學家儀式感。' },
+  { slug: 'v9-radial', title: '4. Radial Bloom', tagline: 'Thumb-arc fan-out', group: 'new',
+    desc: '主頁不變。右下小圓點長按 → 拇指可達弧上「綻放」4 個衛星按鈕，順勢滑釋放。' },
+  { slug: 'v10-toss', title: '5. Magnetic Toss', tagline: 'Drag & snap to preset', group: 'new',
+    desc: '主頁不變。長按右上 + 拖出幽靈卡，底部 preset rail 浮現，磁吸貼合釋放即記錄。' },
+  { slug: 'v11-composer', title: '6. Bottom Composer', tagline: 'Ambient capsule', group: 'new',
+    desc: '主頁不變。底部常駐細長膠囊「+ still hungry?」，點/上拉展開 preset · 拍 · 寫三 tab 面板。' },
+  { slug: 'v12-deck', title: '7. Pocket Deck', tagline: 'Always-visible card stack', group: 'new',
+    desc: '主頁不變。右下角 4 張 preset 卡牌錯位疊放，點頂張直接記錄，上滑頂張切下一張。' },
 ];
 
 export default function PrototypeIndexPage() {
@@ -25,7 +25,7 @@ export default function PrototypeIndexPage() {
       <header className="mb-7">
         <p className="text-[11px] uppercase tracking-[0.24em] text-accent font-mono mb-2">prototype · add meal</p>
         <h1 className="display-roman text-[30px] leading-tight">7 種新增餐入口</h1>
-        <p className="text-[13px] text-text-3 mt-2">每個方案獨立路由，使用相同真實數據。點卡片進入體驗。</p>
+        <p className="text-[13px] text-text-3 mt-2">主頁結構保留，只變化新增那一刻的入口和交互。</p>
       </header>
       <p className="text-[10px] uppercase tracking-[0.24em] text-text-3 font-mono mb-2">第一輪 · 慣常模式</p>
       <ul className="space-y-2.5 mb-7">
@@ -44,7 +44,7 @@ export default function PrototypeIndexPage() {
           </li>
         ))}
       </ul>
-      <p className="text-[10px] uppercase tracking-[0.24em] text-accent font-mono mb-2">第二輪 · 概念驅動</p>
+      <p className="text-[10px] uppercase tracking-[0.24em] text-accent font-mono mb-2">第二輪 · 入口創意（主頁不變）</p>
       <ul className="space-y-2.5">
         {VARIANTS.filter((v) => v.group === 'new').map((v) => (
           <li key={v.slug}>
