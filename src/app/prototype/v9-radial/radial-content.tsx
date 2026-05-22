@@ -20,7 +20,6 @@ type Petal = {
 };
 
 const RADIUS = 86;
-const HIT_RADIUS = 36;
 
 export function RadialContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot }) {
   const api = useHomeData(initialSnapshot);
@@ -102,7 +101,7 @@ export function RadialContent({ initialSnapshot }: { initialSnapshot: HomeSnapsh
     let best = -1;
     let bestD = 999;
     petals.forEach((p, i) => {
-      let d = Math.abs(((theta - p.angle + 540) % 360) - 180);
+      const d = Math.abs(((theta - p.angle + 540) % 360) - 180);
       if (d < bestD && d < 35) { bestD = d; best = i; }
     });
     if (best !== activeIdx) {
