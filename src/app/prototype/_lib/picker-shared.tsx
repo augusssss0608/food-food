@@ -116,11 +116,12 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
   function onPointerMove(e: React.PointerEvent) {
     if (startXRef.current == null) return;
     let dx = e.clientX - startXRef.current + startOffsetRef.current;
-    // non-cyclic 边界橡皮筋阻尼：超出 [0, count-1] 方向的部分压到 0.25
+    // non-cyclic 边界橡皮筋阻尼：超出当前 idx 可移动范围的部分压到 0.25
     if (!cyclic && itemCount > 0) {
-      // dx>0 表示往右拉（idx 想减小）；在 safeIdx=0 时往右拉是越界
-      if (safeIdx === 0 && dx > 0) dx = dx * 0.25;
-      else if (safeIdx === itemCount - 1 && dx < 0) dx = dx * 0.25;
+      const maxRight = safeIdx * itemWidth; // 右拖（dx>0）走完会到 idx=0
+      const maxLeft = -(itemCount - 1 - safeIdx) * itemWidth; // 左拖走完到 idx=last
+      if (dx > maxRight) dx = maxRight + (dx - maxRight) * 0.25;
+      else if (dx < maxLeft) dx = maxLeft + (dx - maxLeft) * 0.25;
     }
     setDragOffset(dx);
     const newTick = Math.round(dx / itemWidth);
@@ -151,11 +152,12 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
       const finalIdx = safeIdx + stepShift;
       if (finalIdx < 0) stepShift = -safeIdx;
       else if (finalIdx > itemCount - 1) stepShift = itemCount - 1 - safeIdx;
-    } else if (itemCount > 0 && stepShift !== 0 && stepShift % itemCount === 0) {
-      // cyclic 小 list 保护：非零步数 mod itemCount 为 0 时会回原点，向同方向退一格
+    }
+    // 先做 global clamp 再做 cyclic modulo 保护，避免 clamp 把保护后的值又掰回原点
+    stepShift = Math.max(-8, Math.min(8, stepShift));
+    if (cyclic && itemCount > 0 && stepShift !== 0 && stepShift % itemCount === 0) {
       stepShift = stepShift > 0 ? stepShift - 1 : stepShift + 1;
     }
-    stepShift = Math.max(-8, Math.min(8, stepShift));
 
     startXRef.current = null;
     lastXRef.current = null;
