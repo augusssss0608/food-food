@@ -20,9 +20,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   const [delOpen, setDelOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const longPressRef = useRef<number | null>(null);
-  const longPressFiredRef = useRef(false);
 
-  const modeWheel = useHWheelPicker(MODES.length, MODE_W);
+  const modeWheel = useHWheelPicker(MODES.length, MODE_W, { cyclic: false });
   const exploreModeIdx = modeWheel.idx;
   const committedModeIdx = useDelayedCommit(exploreModeIdx, COMMIT_DELAY);
   const committedMode = MODES[committedModeIdx]!.key;
@@ -36,11 +35,9 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   function clearTimer() { if (longPressRef.current != null) { window.clearTimeout(longPressRef.current); longPressRef.current = null; } }
   function onPresetPointerDown(e: React.PointerEvent) {
     presetWheel.pointerHandlers.onPointerDown(e);
-    longPressFiredRef.current = false;
     clearTimer();
     if (canLongPress) {
       longPressRef.current = window.setTimeout(() => {
-        longPressFiredRef.current = true;
         setMenuOpen(true);
         if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
       }, LONG_PRESS_MS);
@@ -48,7 +45,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   }
   function onPresetPointerMove(e: React.PointerEvent) {
     presetWheel.pointerHandlers.onPointerMove(e);
-    if (Math.abs(presetWheel.dragOffset) > 6) clearTimer();
+    // 用 ref 读实时 dx，state 在同事件链内仍是旧值
+    if (Math.abs(presetWheel.dragOffsetRef.current) > 6) clearTimer();
   }
   function onPresetPointerUp(e: React.PointerEvent) { clearTimer(); presetWheel.pointerHandlers.onPointerUp(e); }
   async function onRec() {

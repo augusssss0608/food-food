@@ -4,26 +4,59 @@ import type { UserMealPreset } from '@/lib/home-snapshot';
 import { MockPresetForm, InlineConfirmDialog } from './preset-manager';
 import type { HomeDataApi } from './use-home-data';
 
-/* ============ 横向 wheel picker hook（带 RAF release 动画 + per-tick 触觉） ============ */
-export function useHWheelPicker(itemCount: number, itemWidth: number) {
-  const [idx, setIdx] = useState(0);
-  const [dragOffset, setDragOffset] = useState(0);
+/* ============ 横向 wheel picker hook（RAF + per-tick 触觉 + 可选 cyclic） ============ */
+export interface UseHWheelPickerOptions {
+  cyclic?: boolean; // 默认 true：list 大、首尾循环；小 list（如 mode）传 false 走线性
+}
+
+export function useHWheelPicker(itemCount: number, itemWidth: number, options: UseHWheelPickerOptions = {}) {
+  const { cyclic = true } = options;
+  const [idx, setIdxState] = useState(0);
+  const [dragOffset, setDragOffsetState] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+
+  // ref = 真实业务源；state 只负责触发 render
+  const dragOffsetRef = useRef(0);
+  const setDragOffset = (v: number) => {
+    dragOffsetRef.current = v;
+    setDragOffsetState(v);
+  };
+
   const startXRef = useRef<number | null>(null);
+  const startOffsetRef = useRef(0); // 本次按下时的 dragOffset（接续动画用）
   const lastXRef = useRef<number | null>(null);
   const lastTRef = useRef<number | null>(null);
   const velRef = useRef<number>(0);
   const tickRef = useRef<number>(0);
   const rafRef = useRef<number | null>(null);
+  const lastHapticRef = useRef<number>(0);
 
-  const safeIdx = itemCount === 0 ? 0 : ((idx % itemCount) + itemCount) % itemCount;
+  function clampIdx(i: number): number {
+    if (itemCount === 0) return 0;
+    if (cyclic) return ((i % itemCount) + itemCount) % itemCount;
+    return Math.max(0, Math.min(itemCount - 1, i));
+  }
+  const safeIdx = clampIdx(idx);
+
+  function setIdx(updater: number | ((i: number) => number)) {
+    setIdxState((prev) => {
+      const next = typeof updater === 'function' ? (updater as (i: number) => number)(prev) : updater;
+      return clampIdx(next);
+    });
+  }
 
   function getOffsetIdx(rel: number): number {
     if (itemCount === 0) return 0;
-    return ((safeIdx + rel) % itemCount + itemCount) % itemCount;
+    if (cyclic) return ((safeIdx + rel) % itemCount + itemCount) % itemCount;
+    return safeIdx + rel; // caller 自己判断 < 0 或 >= itemCount
   }
 
-  function fireTick(strength = 3) {
+  function fireTick(strength: number, throttleMs = 0) {
+    if (throttleMs > 0) {
+      const now = performance.now();
+      if (now - lastHapticRef.current < throttleMs) return;
+      lastHapticRef.current = now;
+    }
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       try { navigator.vibrate(strength); } catch {}
     }
@@ -44,13 +77,12 @@ export function useHWheelPicker(itemCount: number, itemWidth: number) {
     let lastFrameTick = Math.round(fromOffset / itemWidth);
     const step = (now: number) => {
       const t = Math.min(1, (now - startTime) / duration);
-      // easeOutCubic
       const eased = 1 - Math.pow(1 - t, 3);
       const cur = fromOffset * (1 - eased);
       const frameTick = Math.round(cur / itemWidth);
       if (frameTick !== lastFrameTick) {
         lastFrameTick = frameTick;
-        fireTick(2);
+        fireTick(2, 60); // RAF 节流：60ms 内只发一次
       }
       if (t < 1) {
         setDragOffset(cur);
@@ -68,18 +100,20 @@ export function useHWheelPicker(itemCount: number, itemWidth: number) {
     if (itemCount === 0) return;
     cancelRaf();
     setIsAnimating(false);
-    setDragOffset(0);
+    // 接续动画：保留当前 visual offset 作为新拖曳基点
+    const currentOffset = dragOffsetRef.current;
+    startOffsetRef.current = currentOffset;
     startXRef.current = e.clientX;
     lastXRef.current = e.clientX;
     lastTRef.current = Date.now();
     velRef.current = 0;
-    tickRef.current = 0;
+    tickRef.current = Math.round(currentOffset / itemWidth);
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
   }
 
   function onPointerMove(e: React.PointerEvent) {
     if (startXRef.current == null) return;
-    const dx = e.clientX - startXRef.current;
+    const dx = e.clientX - startXRef.current + startOffsetRef.current;
     setDragOffset(dx);
     const newTick = Math.round(dx / itemWidth);
     if (newTick !== tickRef.current) {
@@ -96,11 +130,21 @@ export function useHWheelPicker(itemCount: number, itemWidth: number) {
 
   function onPointerUp(_e?: React.PointerEvent) {
     if (startXRef.current == null) return;
-    const dx = dragOffset;
+    const dx = dragOffsetRef.current; // 用 ref 不读 state
     const vel = velRef.current;
+
     let stepShift = -Math.round(dx / itemWidth);
-    if (Math.abs(vel) > 0.25) stepShift += -Math.round(vel * 6);
-    stepShift = Math.max(-6, Math.min(6, stepShift));
+    if (Math.abs(vel) > 0.25) {
+      const inertiaSteps = -Math.round(vel * 6);
+      const maxInertia = Math.max(1, itemCount - 1);
+      stepShift += Math.max(-maxInertia, Math.min(maxInertia, inertiaSteps));
+    }
+    if (!cyclic) {
+      const finalIdx = safeIdx + stepShift;
+      if (finalIdx < 0) stepShift = -safeIdx;
+      else if (finalIdx > itemCount - 1) stepShift = itemCount - 1 - safeIdx;
+    }
+    stepShift = Math.max(-8, Math.min(8, stepShift));
 
     startXRef.current = null;
     lastXRef.current = null;
@@ -108,8 +152,10 @@ export function useHWheelPicker(itemCount: number, itemWidth: number) {
     velRef.current = 0;
 
     if (itemCount > 0 && stepShift !== 0) {
-      setIdx((i) => ((i + stepShift) % itemCount + itemCount) % itemCount);
-      // 视觉锚点：idx 跳完后，新 center 在 dx + stepShift*itemWidth 处，从那里平滑回 0
+      setIdxState((i) => {
+        const next = i + stepShift;
+        return cyclic ? ((next % itemCount) + itemCount) % itemCount : Math.max(0, Math.min(itemCount - 1, next));
+      });
       const visualFrom = dx + stepShift * itemWidth;
       setDragOffset(visualFrom);
       animateTo(visualFrom, 280);
@@ -132,6 +178,7 @@ export function useHWheelPicker(itemCount: number, itemWidth: number) {
     idx: safeIdx,
     setIdx,
     dragOffset,
+    dragOffsetRef,
     isAnimating,
     getOffsetIdx,
     pointerHandlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel },
