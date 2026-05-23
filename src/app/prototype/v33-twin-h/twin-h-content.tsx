@@ -36,7 +36,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   function onPresetPointerDown(e: React.PointerEvent) {
     presetWheel.pointerHandlers.onPointerDown(e);
     clearTimer();
-    if (canLongPress) {
+    // 接续动画或仍有残留 offset 时不启动长按（避免按住对不到中心 preset）
+    if (canLongPress && !presetWheel.isAnimating && Math.abs(presetWheel.dragOffsetRef.current) <= 6) {
       longPressRef.current = window.setTimeout(() => {
         setMenuOpen(true);
         if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
@@ -146,7 +147,9 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                     style={{ touchAction: 'none' }}
                   >
                     {[-2, -1, 0, 1, 2].map((rel) => {
-                      const p = presetList[presetWheel.getOffsetIdx(rel)];
+                      const realIdx = presetWheel.getOffsetIdx(rel);
+                      if (realIdx == null) return null;
+                      const p = presetList[realIdx];
                       if (!p) return null;
                       const visualPos = rel * CARD_W + presetWheel.dragOffset;
                       const distC = Math.abs(visualPos) / CARD_W;

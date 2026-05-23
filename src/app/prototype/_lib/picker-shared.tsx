@@ -45,10 +45,12 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
     });
   }
 
-  function getOffsetIdx(rel: number): number {
-    if (itemCount === 0) return 0;
+  function getOffsetIdx(rel: number): number | null {
+    if (itemCount === 0) return null;
     if (cyclic) return ((safeIdx + rel) % itemCount + itemCount) % itemCount;
-    return safeIdx + rel; // caller 自己判断 < 0 或 >= itemCount
+    const t = safeIdx + rel;
+    if (t < 0 || t >= itemCount) return null;
+    return t;
   }
 
   function fireTick(strength: number, throttleMs = 0) {
@@ -113,7 +115,13 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
 
   function onPointerMove(e: React.PointerEvent) {
     if (startXRef.current == null) return;
-    const dx = e.clientX - startXRef.current + startOffsetRef.current;
+    let dx = e.clientX - startXRef.current + startOffsetRef.current;
+    // non-cyclic 边界橡皮筋阻尼：超出 [0, count-1] 方向的部分压到 0.25
+    if (!cyclic && itemCount > 0) {
+      // dx>0 表示往右拉（idx 想减小）；在 safeIdx=0 时往右拉是越界
+      if (safeIdx === 0 && dx > 0) dx = dx * 0.25;
+      else if (safeIdx === itemCount - 1 && dx < 0) dx = dx * 0.25;
+    }
     setDragOffset(dx);
     const newTick = Math.round(dx / itemWidth);
     if (newTick !== tickRef.current) {
@@ -143,6 +151,9 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
       const finalIdx = safeIdx + stepShift;
       if (finalIdx < 0) stepShift = -safeIdx;
       else if (finalIdx > itemCount - 1) stepShift = itemCount - 1 - safeIdx;
+    } else if (itemCount > 0 && stepShift !== 0 && stepShift % itemCount === 0) {
+      // cyclic 小 list 保护：非零步数 mod itemCount 为 0 时会回原点，向同方向退一格
+      stepShift = stepShift > 0 ? stepShift - 1 : stepShift + 1;
     }
     stepShift = Math.max(-8, Math.min(8, stepShift));
 
@@ -152,10 +163,7 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
     velRef.current = 0;
 
     if (itemCount > 0 && stepShift !== 0) {
-      setIdxState((i) => {
-        const next = i + stepShift;
-        return cyclic ? ((next % itemCount) + itemCount) % itemCount : Math.max(0, Math.min(itemCount - 1, next));
-      });
+      setIdxState((i) => clampIdx(i + stepShift));
       const visualFrom = dx + stepShift * itemWidth;
       setDragOffset(visualFrom);
       animateTo(visualFrom, 280);
