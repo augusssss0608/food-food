@@ -23,8 +23,12 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   const modeWheel = useHWheelPicker(MODES.length, MODE_W, { cyclic: false, maxStep: 1 });
   const currentMode = MODES[modeWheel.idx]!.key;
 
+  // detent 视觉脉冲：每次 preset 跨刻度时 +1，center card 用作 key 强制重播动画
+  const [tickPulse, setTickPulse] = useState(0);
   const presetList = useMemo(() => presetListForMode(api.presets, currentMode), [api.presets, currentMode]);
-  const presetWheel = useHWheelPicker(presetList.length, CARD_W);
+  const presetWheel = useHWheelPicker(presetList.length, CARD_W, {
+    onTick: () => setTickPulse((t) => t + 1),
+  });
   const currentPreset = presetList[presetWheel.idx];
 
   // —— preset 手势：水平 = wheel，垂直 = 上滑删除 / 下滑编辑 ——
@@ -93,19 +97,19 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   const closeStartY = useRef<number | null>(null);
   const closeDragMoved = useRef(false);
   const [closeDragY, setCloseDragY] = useState(0);
-  function onCloseDragDown(e: React.PointerEvent) {
-    closeStartY.current = e.clientY;
+  function startCloseDrag(clientY: number) {
+    closeStartY.current = clientY;
     closeDragMoved.current = false;
   }
-  function onCloseDragMove(e: React.PointerEvent) {
+  function updateCloseDrag(clientY: number) {
     if (closeStartY.current == null) return;
-    const dy = e.clientY - closeStartY.current;
+    const dy = clientY - closeStartY.current;
     if (Math.abs(dy) > 4) closeDragMoved.current = true;
     setCloseDragY(dy > 0 ? dy : 0);
   }
-  function onCloseDragUp(e: React.PointerEvent) {
+  function endCloseDrag(clientY: number) {
     if (closeStartY.current == null) return;
-    const dy = e.clientY - closeStartY.current;
+    const dy = clientY - closeStartY.current;
     closeStartY.current = null;
     if (dy > CLOSE_DRAG_TRIGGER) {
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
@@ -113,10 +117,67 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     }
     setCloseDragY(0);
   }
-  function onCloseDragCancel() {
+  function cancelCloseDrag() {
     closeStartY.current = null;
     closeDragMoved.current = false;
     setCloseDragY(0);
+  }
+
+  function onCloseDragDown(e: React.PointerEvent) { startCloseDrag(e.clientY); }
+  function onCloseDragMove(e: React.PointerEvent) { updateCloseDrag(e.clientY); }
+  function onCloseDragUp(e: React.PointerEvent) { endCloseDrag(e.clientY); }
+
+  // —— mode 手势包装：水平给 wheel，垂直给 sheet close drag ——
+  const modeGestureAxis = useRef<'idle' | 'horizontal' | 'vertical'>('idle');
+  const modeStartXRef = useRef<number | null>(null);
+  const modeStartYRef = useRef<number | null>(null);
+
+  function onModePointerDown(e: React.PointerEvent) {
+    modeGestureAxis.current = 'idle';
+    modeStartXRef.current = e.clientX;
+    modeStartYRef.current = e.clientY;
+    modeWheel.pointerHandlers.onPointerDown(e);
+  }
+  function onModePointerMove(e: React.PointerEvent) {
+    if (modeStartXRef.current == null || modeStartYRef.current == null) return;
+    const dx = e.clientX - modeStartXRef.current;
+    const dy = e.clientY - modeStartYRef.current;
+    if (modeGestureAxis.current === 'idle') {
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+      if (absDx > PRESET_AXIS_LOCK || absDy > PRESET_AXIS_LOCK) {
+        // 垂直且向下：交给 sheet close drag
+        modeGestureAxis.current = absDx > absDy ? 'horizontal' : 'vertical';
+        if (modeGestureAxis.current === 'vertical') {
+          modeWheel.pointerHandlers.onPointerCancel(e);
+          startCloseDrag(modeStartYRef.current);
+        }
+      }
+    }
+    if (modeGestureAxis.current === 'horizontal') {
+      modeWheel.pointerHandlers.onPointerMove(e);
+    } else if (modeGestureAxis.current === 'vertical') {
+      updateCloseDrag(e.clientY);
+    }
+  }
+  function onModePointerUp(e: React.PointerEvent) {
+    if (modeGestureAxis.current === 'vertical') {
+      endCloseDrag(e.clientY);
+    } else if (modeGestureAxis.current === 'horizontal') {
+      modeWheel.pointerHandlers.onPointerUp(e);
+    } else {
+      modeWheel.pointerHandlers.onPointerCancel(e);
+    }
+    modeGestureAxis.current = 'idle';
+    modeStartXRef.current = null;
+    modeStartYRef.current = null;
+  }
+  function onModePointerCancel(e: React.PointerEvent) {
+    modeWheel.pointerHandlers.onPointerCancel(e);
+    cancelCloseDrag();
+    modeGestureAxis.current = 'idle';
+    modeStartXRef.current = null;
+    modeStartYRef.current = null;
   }
 
   async function onRec() {
@@ -170,7 +231,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
               onPointerDown={onCloseDragDown}
               onPointerMove={onCloseDragMove}
               onPointerUp={onCloseDragUp}
-              onPointerCancel={onCloseDragCancel}
+              onPointerCancel={cancelCloseDrag}
               style={{ touchAction: 'none' }}
             >
               <div className="twh-header-left">
@@ -195,10 +256,10 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
               <div className="twh-mode-mask-l" aria-hidden />
               <div className="twh-mode-mask-r" aria-hidden />
               <div className="twh-mode-track"
-                onPointerDown={modeWheel.pointerHandlers.onPointerDown}
-                onPointerMove={modeWheel.pointerHandlers.onPointerMove}
-                onPointerUp={modeWheel.pointerHandlers.onPointerUp}
-                onPointerCancel={modeWheel.pointerHandlers.onPointerCancel}
+                onPointerDown={onModePointerDown}
+                onPointerMove={onModePointerMove}
+                onPointerUp={onModePointerUp}
+                onPointerCancel={onModePointerCancel}
                 style={{ touchAction: 'none' }}
               >
                 {[-1, 0, 1].map((rel) => {
@@ -294,6 +355,9 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                             opacity,
                           }}
                         >
+                          {isCenter && tickPulse > 0 && (
+                            <span key={`tk-${tickPulse}`} className="twh-card-tick" aria-hidden />
+                          )}
                           <p className="twh-card-name">{p.name}</p>
                           <p className="twh-card-kcal tabular">
                             {Math.round(p.kcal)}<span className="text-[10px] text-text-3 ml-1">kcal</span>
@@ -577,6 +641,24 @@ const styles = `
 }
 .twh-card-active .twh-card-name { color: var(--color-accent); font-size: 18px; }
 .twh-card-active .twh-card-kcal { color: var(--color-accent); font-size: 24px; }
+
+/* detent 视觉脉冲（iOS 无 vibrate 时的 fallback） */
+@keyframes twh-tick-pulse {
+  0% {
+    box-shadow: inset 0 0 0 2px rgba(200,255,0,0.85), 0 0 22px rgba(200,255,0,0.55);
+    background: rgba(200,255,0,0.07);
+  }
+  100% {
+    box-shadow: inset 0 0 0 0 rgba(200,255,0,0), 0 0 0 rgba(200,255,0,0);
+    background: rgba(200,255,0,0);
+  }
+}
+.twh-card-tick {
+  position: absolute; inset: 0;
+  border-radius: 16px;
+  pointer-events: none;
+  animation: twh-tick-pulse 0.18s ease-out forwards;
+}
 
 /* ========== swipe hint ========== */
 .twh-swipe-hint {
