@@ -128,10 +128,11 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     setVerticalDrag(0);
   }
 
-  // —— page dots scrub（不限步，跨 22px 切一个 idx） ——
+  // —— page dots scrub（不限步，跨 22px 切一个 idx，vibrate 节流 50ms） ——
   const dotsStartX = useRef<number | null>(null);
   const dotsStartIdx = useRef<number>(0);
   const dotsLastIdx = useRef<number>(0);
+  const dotsLastVibrate = useRef<number>(0);
   function onDotsPointerDown(e: React.PointerEvent) {
     dotsStartX.current = e.clientX;
     dotsStartIdx.current = presetWheel.idx;
@@ -147,7 +148,11 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
       presetWheel.snapTo(newIdx, { animate: false, haptic: false });
       dotsLastIdx.current = newIdx;
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        try { navigator.vibrate(2); } catch {}
+        const now = performance.now();
+        if (now - dotsLastVibrate.current > 50) {
+          try { navigator.vibrate(2); } catch {}
+          dotsLastVibrate.current = now;
+        }
       }
     }
   }
@@ -155,7 +160,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     dotsStartX.current = null;
   }
 
-  // —— sheet close drag + 关闭动画（RAF 两阶段 + transitionend） ——
+  // —— sheet close drag + 关闭动画（double RAF + forced reflow + transitionend） ——
+  const sheetRef = useRef<HTMLDivElement | null>(null);
   const closeStartY = useRef<number | null>(null);
   const closeDragMoved = useRef(false);
   const [closeDragY, setCloseDragY] = useState(0);
@@ -166,16 +172,21 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   function triggerClose() {
     if (closing) return;
     setClosing(true);
-    // 第一阶段：closing render commit；transition 此时已是 0.3s（closeStartY 已 null）
-    // 但 transform 还是当前 dy，没有动画启动
+    // 第一阶段：closing render commit；transition 此时变 0.32s
+    // 第二阶段：double RAF + forced reflow 保证浏览器完成 style recalc，
+    //          再改 transform 触发 CSS transition 动画
     if (closeRafRef.current != null) cancelAnimationFrame(closeRafRef.current);
     closeRafRef.current = requestAnimationFrame(() => {
-      closeRafRef.current = null;
-      // 第二阶段：仅 transform 变化触发 transition 动画
-      setCloseDragY(typeof window !== 'undefined' ? window.innerHeight : 800);
+      closeRafRef.current = requestAnimationFrame(() => {
+        closeRafRef.current = null;
+        if (sheetRef.current) {
+          // forced reflow：让 transition prop 真的 commit 到 computed style
+          void sheetRef.current.offsetHeight;
+        }
+        setCloseDragY(typeof window !== 'undefined' ? window.innerHeight : 800);
+      });
     });
     if (closingTimerRef.current) window.clearTimeout(closingTimerRef.current);
-    // 兜底：onTransitionEnd 没触发也 500ms 强制卸载
     closingTimerRef.current = window.setTimeout(() => {
       finalizeClose();
     }, 500);
@@ -329,7 +340,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
               transition: closing ? 'opacity 0.32s ease-in' : undefined,
             }}
           />
-          <div className="absolute left-0 right-0 bottom-0 twh-sheet"
+          <div ref={sheetRef} className="absolute left-0 right-0 bottom-0 twh-sheet"
             style={{
               height: '52vh',
               animation: closing ? undefined : 'sheet-up 0.32s var(--ease-out-soft) both',

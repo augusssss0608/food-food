@@ -24,6 +24,9 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
     setDragOffsetState(v);
   };
 
+  // idx ref 同步当前业务值，避免高频 snapTo 调用读 stale state
+  const idxRef = useRef(0);
+
   const startXRef = useRef<number | null>(null);
   const startOffsetRef = useRef(0); // 本次按下时的 dragOffset（接续动画用）
   const lastXRef = useRef<number | null>(null);
@@ -43,7 +46,9 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
   function setIdx(updater: number | ((i: number) => number)) {
     setIdxState((prev) => {
       const next = typeof updater === 'function' ? (updater as (i: number) => number)(prev) : updater;
-      return clampIdx(next);
+      const clamped = clampIdx(next);
+      idxRef.current = clamped;
+      return clamped;
     });
   }
 
@@ -169,7 +174,11 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
     velRef.current = 0;
 
     if (itemCount > 0 && stepShift !== 0) {
-      setIdxState((i) => clampIdx(i + stepShift));
+      setIdxState((i) => {
+        const clamped = clampIdx(i + stepShift);
+        idxRef.current = clamped;
+        return clamped;
+      });
       const visualFrom = dx + stepShift * itemWidth;
       setDragOffset(visualFrom);
       animateTo(visualFrom, 280);
@@ -193,9 +202,11 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
     const { animate = false, haptic = true } = opts;
     if (itemCount === 0) return;
     const clamped = clampIdx(targetIdx);
-    const delta = clamped - safeIdx;
+    // 用 idxRef 判 delta，避免高频调用读 stale state safeIdx
+    const delta = clamped - idxRef.current;
     if (delta === 0) return;
     cancelRaf();
+    idxRef.current = clamped;
     setIdxState(clamped);
     if (animate) {
       const visualFrom = delta * itemWidth + dragOffsetRef.current;
