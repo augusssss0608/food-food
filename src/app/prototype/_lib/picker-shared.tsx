@@ -188,22 +188,23 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
     velRef.current = 0;
   }
 
-  // 程序化跳转到指定 idx，可选走 RAF 动画（点击 side cell 用）
-  function snapTo(targetIdx: number, opts: { animate?: boolean } = {}) {
+  // 程序化跳转到指定 idx，可选 RAF 动画 + 可选触觉（dots scrub 不要 vibrate）
+  function snapTo(targetIdx: number, opts: { animate?: boolean; haptic?: boolean } = {}) {
+    const { animate = false, haptic = true } = opts;
     if (itemCount === 0) return;
     const clamped = clampIdx(targetIdx);
     const delta = clamped - safeIdx;
     if (delta === 0) return;
     cancelRaf();
     setIdxState(clamped);
-    if (opts.animate) {
+    if (animate) {
       const visualFrom = delta * itemWidth + dragOffsetRef.current;
       setDragOffset(visualFrom);
       animateTo(visualFrom, 280);
     } else {
       setDragOffset(0);
     }
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    if (haptic && typeof navigator !== 'undefined' && navigator.vibrate) {
       try { navigator.vibrate(6); } catch {}
     }
   }

@@ -1,41 +1,72 @@
 'use client';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PrototypeShell } from '../_lib/prototype-shell';
 import { RealHomeShell } from '../_lib/real-home';
 import { useHomeData } from '../_lib/use-home-data';
-import { useHWheelPicker, PresetCrudModals, MODES, presetListForMode } from '../_lib/picker-shared';
+import { useHWheelPicker, MODES, presetListForMode } from '../_lib/picker-shared';
+import { MockPresetForm, InlineConfirmDialog } from '../_lib/preset-manager';
 import type { HomeSnapshot } from '@/lib/home-snapshot';
 
 const MODE_W = 116;
 const CARD_W = 200;
-const PRESET_AXIS_LOCK = 8;     // preset 手势主轴判定阈值
-const VERTICAL_TRIGGER = 60;    // preset 垂直滑动多少 px 触发 edit/delete
-const CLOSE_DRAG_TRIGGER = 90;  // header 向下拖多少 px 关闭 sheet
+const CARD_INNER_W = CARD_W - 16;
+const CARD_INNER_H = 118;
+const PRESET_AXIS_LOCK = 8;
+const VERTICAL_TRIGGER = 60;
+const CLOSE_DRAG_TRIGGER = 90;
+const DOT_PIXEL = 22;
+const LONG_PRESS_MS = 1500;
+
+type SheetView = 'list' | 'create' | 'edit';
 
 export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot }) {
   const api = useHomeData(initialSnapshot);
   const [open, setOpen] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
+  const [view, setView] = useState<SheetView>('list');
   const [delOpen, setDelOpen] = useState(false);
 
-  // —— mode wheel：非循环 + 一次最多 1 格 + click 走 snapTo 动画 ——
   const modeWheel = useHWheelPicker(MODES.length, MODE_W, { cyclic: false, maxStep: 1 });
   const currentMode = MODES[modeWheel.idx]!.key;
 
-  // detent 视觉脉冲：每次 preset 跨刻度时 +1，center card 用作 key 强制重播动画
   const [tickPulse, setTickPulse] = useState(0);
   const presetList = useMemo(() => presetListForMode(api.presets, currentMode), [api.presets, currentMode]);
   const presetWheel = useHWheelPicker(presetList.length, CARD_W, {
+    maxStep: 1,
     onTick: () => setTickPulse((t) => t + 1),
   });
   const currentPreset = presetList[presetWheel.idx];
 
-  // —— preset 手势：水平 = wheel，垂直 = 上滑删除 / 下滑编辑 ——
+  // —— preset 手势：水平 1-step wheel / 垂直 CRUD / 长按 record ——
   const gestureAxis = useRef<'idle' | 'horizontal' | 'vertical'>('idle');
   const startXRef = useRef<number | null>(null);
   const startYRef = useRef<number | null>(null);
   const [verticalDrag, setVerticalDrag] = useState(0);
+  const [pressing, setPressing] = useState(false);
+  const longPressTimerRef = useRef<number | null>(null);
+
+  function startLongPress() {
+    if (currentMode === 'camera' || !currentPreset || api.recordingId != null) return;
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    setPressing(true);
+    longPressTimerRef.current = window.setTimeout(async () => {
+      longPressTimerRef.current = null;
+      setPressing(false);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate([6, 30, 18]); } catch {}
+      }
+      if (currentPreset) {
+        const ok = await api.recordCustomPreset(currentPreset);
+        if (ok) triggerClose();
+      }
+    }, LONG_PRESS_MS);
+  }
+  function cancelLongPress() {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (pressing) setPressing(false);
+  }
 
   function onPresetPointerDown(e: React.PointerEvent) {
     gestureAxis.current = 'idle';
@@ -43,6 +74,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     startYRef.current = e.clientY;
     setVerticalDrag(0);
     presetWheel.pointerHandlers.onPointerDown(e);
+    startLongPress();
   }
   function onPresetPointerMove(e: React.PointerEvent) {
     if (startXRef.current == null || startYRef.current == null) return;
@@ -53,6 +85,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
       const absDy = Math.abs(dy);
       if (absDx > PRESET_AXIS_LOCK || absDy > PRESET_AXIS_LOCK) {
         gestureAxis.current = absDx > absDy ? 'horizontal' : 'vertical';
+        cancelLongPress();
         if (gestureAxis.current === 'vertical') {
           presetWheel.pointerHandlers.onPointerCancel(e);
         }
@@ -65,6 +98,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     }
   }
   function onPresetPointerUp(e: React.PointerEvent) {
+    cancelLongPress();
     const dy = startYRef.current != null ? e.clientY - startYRef.current : 0;
     if (gestureAxis.current === 'vertical' && currentPreset && currentMode !== 'camera') {
       if (dy < -VERTICAL_TRIGGER) {
@@ -73,7 +107,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
       } else if (dy > VERTICAL_TRIGGER) {
         if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
         api.clearDuplicate();
-        setEditOpen(true);
+        setView('edit');
       }
     } else if (gestureAxis.current === 'horizontal') {
       presetWheel.pointerHandlers.onPointerUp(e);
@@ -86,6 +120,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     setVerticalDrag(0);
   }
   function onPresetPointerCancel(e: React.PointerEvent) {
+    cancelLongPress();
     presetWheel.pointerHandlers.onPointerCancel(e);
     gestureAxis.current = 'idle';
     startXRef.current = null;
@@ -93,25 +128,76 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     setVerticalDrag(0);
   }
 
-  // —— sheet header 下拉关闭 ——
+  // —— page dots scrub（不限步，跨 22px 切一个 idx） ——
+  const dotsStartX = useRef<number | null>(null);
+  const dotsStartIdx = useRef<number>(0);
+  const dotsLastIdx = useRef<number>(0);
+  function onDotsPointerDown(e: React.PointerEvent) {
+    dotsStartX.current = e.clientX;
+    dotsStartIdx.current = presetWheel.idx;
+    dotsLastIdx.current = presetWheel.idx;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  }
+  function onDotsPointerMove(e: React.PointerEvent) {
+    if (dotsStartX.current == null) return;
+    const dx = e.clientX - dotsStartX.current;
+    const delta = Math.round(dx / DOT_PIXEL);
+    const newIdx = Math.max(0, Math.min(presetList.length - 1, dotsStartIdx.current + delta));
+    if (newIdx !== dotsLastIdx.current) {
+      presetWheel.snapTo(newIdx, { animate: false, haptic: false });
+      dotsLastIdx.current = newIdx;
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate(2); } catch {}
+      }
+    }
+  }
+  function onDotsPointerUp() {
+    dotsStartX.current = null;
+  }
+
+  // —— sheet close drag + 关闭动画（RAF 两阶段 + transitionend） ——
   const closeStartY = useRef<number | null>(null);
   const closeDragMoved = useRef(false);
   const [closeDragY, setCloseDragY] = useState(0);
   const [closing, setClosing] = useState(false);
   const closingTimerRef = useRef<number | null>(null);
+  const closeRafRef = useRef<number | null>(null);
 
-  // 通用：触发关闭动画（点击 backdrop 也用），sheet 滑出 + backdrop fade
   function triggerClose() {
     if (closing) return;
     setClosing(true);
-    setCloseDragY(typeof window !== 'undefined' ? window.innerHeight : 800);
+    // 第一阶段：closing render commit；transition 此时已是 0.3s（closeStartY 已 null）
+    // 但 transform 还是当前 dy，没有动画启动
+    if (closeRafRef.current != null) cancelAnimationFrame(closeRafRef.current);
+    closeRafRef.current = requestAnimationFrame(() => {
+      closeRafRef.current = null;
+      // 第二阶段：仅 transform 变化触发 transition 动画
+      setCloseDragY(typeof window !== 'undefined' ? window.innerHeight : 800);
+    });
     if (closingTimerRef.current) window.clearTimeout(closingTimerRef.current);
+    // 兜底：onTransitionEnd 没触发也 500ms 强制卸载
     closingTimerRef.current = window.setTimeout(() => {
-      setOpen(false);
-      setClosing(false);
-      setCloseDragY(0);
+      finalizeClose();
+    }, 500);
+  }
+  function finalizeClose() {
+    if (closingTimerRef.current) {
+      window.clearTimeout(closingTimerRef.current);
       closingTimerRef.current = null;
-    }, 320);
+    }
+    if (closeRafRef.current != null) {
+      cancelAnimationFrame(closeRafRef.current);
+      closeRafRef.current = null;
+    }
+    setOpen(false);
+    setClosing(false);
+    setCloseDragY(0);
+    setView('list');
+  }
+  function onSheetTransitionEnd(e: React.TransitionEvent) {
+    if (closing && e.propertyName === 'transform' && e.currentTarget === e.target) {
+      finalizeClose();
+    }
   }
 
   function startCloseDrag(clientY: number) {
@@ -133,7 +219,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
       triggerClose();
     } else {
-      setCloseDragY(0); // 没过阈值 → 回弹
+      setCloseDragY(0);
     }
   }
   function cancelCloseDrag() {
@@ -141,12 +227,17 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     closeDragMoved.current = false;
     if (!closing) setCloseDragY(0);
   }
-
   function onCloseDragDown(e: React.PointerEvent) { startCloseDrag(e.clientY); }
   function onCloseDragMove(e: React.PointerEvent) { updateCloseDrag(e.clientY); }
   function onCloseDragUp(e: React.PointerEvent) { endCloseDrag(e.clientY); }
 
-  // —— mode 手势包装：水平给 wheel，垂直给 sheet close drag ——
+  useEffect(() => () => {
+    if (closingTimerRef.current) window.clearTimeout(closingTimerRef.current);
+    if (closeRafRef.current != null) cancelAnimationFrame(closeRafRef.current);
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+  }, []);
+
+  // —— mode 手势：水平 wheel / 垂直向下 close drag ——
   const modeGestureAxis = useRef<'idle' | 'horizontal' | 'vertical'>('idle');
   const modeStartXRef = useRef<number | null>(null);
   const modeStartYRef = useRef<number | null>(null);
@@ -168,7 +259,6 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
         if (absDx > absDy) {
           modeGestureAxis.current = 'horizontal';
         } else if (dy > 0) {
-          // 垂直向下：交给 sheet close drag；向上忽略（保留 horizontal 让 wheel 处理 dx）
           modeGestureAxis.current = 'vertical';
           modeWheel.pointerHandlers.onPointerCancel(e);
           startCloseDrag(modeStartYRef.current);
@@ -203,11 +293,6 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     modeStartYRef.current = null;
   }
 
-  async function onRec() {
-    if (currentMode === 'camera') return;
-    if (currentPreset) { const ok = await api.recordCustomPreset(currentPreset); if (ok) setOpen(false); }
-  }
-
   // page indicator dots
   const total = presetList.length;
   const maxDots = 7;
@@ -216,7 +301,6 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     ? presetWheel.idx
     : Math.round((presetWheel.idx * (maxDots - 1)) / Math.max(1, total - 1));
 
-  // 垂直拖曳视觉
   const vDragAbs = Math.abs(verticalDrag);
   const showDeleteHint = verticalDrag < -PRESET_AXIS_LOCK;
   const showEditHint = verticalDrag > PRESET_AXIS_LOCK;
@@ -242,7 +326,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
             style={{
               animation: closing ? undefined : 'ff-fade-in 0.2s ease-out both',
               opacity: closing ? 0 : 1,
-              transition: closing ? 'opacity 0.3s ease-in' : undefined,
+              transition: closing ? 'opacity 0.32s ease-in' : undefined,
             }}
           />
           <div className="absolute left-0 right-0 bottom-0 twh-sheet"
@@ -251,13 +335,14 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
               animation: closing ? undefined : 'sheet-up 0.32s var(--ease-out-soft) both',
               paddingBottom: 'env(safe-area-inset-bottom)',
               transform: `translateY(${closeDragY}px)`,
-              transition: closeStartY.current == null ? 'transform 0.3s var(--ease-out-soft)' : 'none',
+              transition: (closeStartY.current == null || closing) ? 'transform 0.32s var(--ease-out-soft)' : 'none',
               pointerEvents: closing ? 'none' : undefined,
             }}
+            onTransitionEnd={onSheetTransitionEnd}
           >
             <div className="twh-glow" aria-hidden />
 
-            {/* header：drag handle 用于下拉关闭，整个区域可触发 */}
+            {/* header */}
             <div className="twh-header flex-shrink-0"
               onPointerDown={onCloseDragDown}
               onPointerMove={onCloseDragMove}
@@ -266,174 +351,259 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
               style={{ touchAction: 'none' }}
             >
               <div className="twh-header-left">
-                <p className="text-[9px] uppercase tracking-[0.3em] text-text-3 font-mono">add meal</p>
-                <p className="display-roman text-[18px] leading-none mt-0.5">記一筆</p>
+                <p className="text-[9px] uppercase tracking-[0.3em] text-text-3 font-mono">
+                  {view === 'list' ? 'add meal' : view === 'create' ? 'new preset' : 'edit preset'}
+                </p>
+                <p className="display-roman text-[18px] leading-none mt-0.5">
+                  {view === 'list' ? '記一筆' : view === 'create' ? '新 preset' : '編輯'}
+                </p>
               </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (closeDragMoved.current) return;
-                  api.clearDuplicate();
-                  setCreateOpen(true);
-                }}
-                className="twh-icon-btn"
-                aria-label="new preset"
-              >＋</button>
-            </div>
-
-            {/* mode wheel：3 个 mode 横向 cover-flow + 可点 */}
-            <div className="flex-shrink-0 twh-mode-strip">
-              <div className="twh-mode-highlight" aria-hidden />
-              <div className="twh-mode-mask-l" aria-hidden />
-              <div className="twh-mode-mask-r" aria-hidden />
-              <div className="twh-mode-track"
-                onPointerDown={onModePointerDown}
-                onPointerMove={onModePointerMove}
-                onPointerUp={onModePointerUp}
-                onPointerCancel={onModePointerCancel}
-                style={{ touchAction: 'none' }}
-              >
-                {[-1, 0, 1].map((rel) => {
-                  const realIdx = modeWheel.getOffsetIdx(rel);
-                  if (realIdx == null) return null;
-                  const m = MODES[realIdx];
-                  if (!m) return null;
-                  const visualPos = rel * MODE_W + modeWheel.dragOffset;
-                  const distC = Math.abs(visualPos) / MODE_W;
-                  const scale = Math.max(0.7, 1 - distC * 0.18);
-                  const opacity = Math.max(0.2, Math.min(1, 1 - distC * 0.55));
-                  const isCenter = distC < 0.5;
-                  return (
-                    <button key={m.key}
-                      type="button"
-                      onClick={() => {
-                        if (modeWheel.isAnimating) return;
-                        if (Math.abs(modeWheel.dragOffsetRef.current) > 6) return;
-                        if (realIdx === modeWheel.idx) return;
-                        modeWheel.snapTo(realIdx, { animate: true });
-                      }}
-                      className={`twh-mode-cell ${isCenter ? 'twh-mode-cell-active' : ''}`}
-                      style={{
-                        transform: `translate(-50%, -50%) translateX(${visualPos}px) scale(${scale})`,
-                        opacity,
-                      }}
-                    >
-                      <span className="twh-mode-label">{m.label}</span>
-                      <span className="twh-mode-sub">{m.sub}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* preset cover-flow */}
-            <div className="flex-1 twh-cover-wrap min-h-0 relative">
-              {currentMode === 'camera' ? (
-                <div className="twh-camera">
-                  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                    <circle cx="12" cy="13" r="4" />
-                  </svg>
-                  <p className="text-[11px] font-mono uppercase tracking-wider text-text-3 mt-1">camera</p>
-                </div>
-              ) : presetList.length === 0 ? (
-                <div className="twh-empty">
-                  <p className="text-[13px] text-text-3 font-mono">no preset</p>
-                  <button onClick={() => { api.clearDuplicate(); setCreateOpen(true); }} className="twh-empty-cta">＋ new</button>
-                </div>
+              {view === 'list' ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (closeDragMoved.current) return;
+                    api.clearDuplicate();
+                    setView('create');
+                  }}
+                  className="twh-icon-btn"
+                  aria-label="new preset"
+                >＋</button>
               ) : (
-                <>
-                  <div className="twh-cover-mask-l" aria-hidden />
-                  <div className="twh-cover-mask-r" aria-hidden />
-
-                  <div className={`twh-swipe-hint twh-swipe-hint-top ${showDeleteHint ? 'twh-swipe-hint-on' : ''}`}
-                    style={{ opacity: showDeleteHint ? verticalIntensity : 0 }}
-                  >
-                    <span className="twh-swipe-hint-arrow">↑</span>
-                    <span>刪除</span>
-                  </div>
-                  <div className={`twh-swipe-hint twh-swipe-hint-bottom ${showEditHint ? 'twh-swipe-hint-on' : ''}`}
-                    style={{ opacity: showEditHint ? verticalIntensity : 0 }}
-                  >
-                    <span className="twh-swipe-hint-arrow">↓</span>
-                    <span>編輯</span>
-                  </div>
-
-                  <div className="twh-cover-track"
-                    onPointerDown={onPresetPointerDown}
-                    onPointerMove={onPresetPointerMove}
-                    onPointerUp={onPresetPointerUp}
-                    onPointerCancel={onPresetPointerCancel}
-                    onContextMenu={(e) => e.preventDefault()}
-                    style={{ touchAction: 'none' }}
-                  >
-                    {[-2, -1, 0, 1, 2].map((rel) => {
-                      const realIdx = presetWheel.getOffsetIdx(rel);
-                      if (realIdx == null) return null;
-                      const p = presetList[realIdx];
-                      if (!p) return null;
-                      const visualPos = rel * CARD_W + presetWheel.dragOffset;
-                      const distC = Math.abs(visualPos) / CARD_W;
-                      const scale = Math.max(0.5, 1 - distC * 0.09);
-                      const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
-                      const isCenter = distC < 0.5;
-                      const yOffset = isCenter ? verticalDrag * 0.35 : 0;
-                      return (
-                        <div key={`${p.id}-${rel}`}
-                          className={`twh-card ${isCenter ? 'twh-card-active' : ''}`}
-                          style={{
-                            transform: `translate(${visualPos}px, ${yOffset}px) scale(${scale})`,
-                            opacity,
-                          }}
-                        >
-                          {isCenter && tickPulse > 0 && (
-                            <span key={`tk-${tickPulse}`} className="twh-card-tick" aria-hidden />
-                          )}
-                          <p className="twh-card-name">{p.name}</p>
-                          <p className="twh-card-kcal tabular">
-                            {Math.round(p.kcal)}<span className="text-[10px] text-text-3 ml-1">kcal</span>
-                          </p>
-                          {isCenter && (
-                            <p className="twh-card-macro tabular">
-                              <span style={{ color: '#c8ff00' }}>P {Math.round(p.protein_g)}</span>
-                              <span className="opacity-50 mx-1.5">·</span>
-                              <span style={{ color: '#f5a623' }}>C {Math.round(p.carb_g)}</span>
-                              <span className="opacity-50 mx-1.5">·</span>
-                              <span style={{ color: '#a486f4' }}>F {Math.round(p.fat_g)}</span>
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    api.clearDuplicate();
+                    setView('list');
+                  }}
+                  className="twh-icon-btn"
+                  aria-label="back"
+                >←</button>
               )}
             </div>
 
-            {/* page dots（不含 idx/total 文字） */}
-            {currentMode !== 'camera' && presetList.length > 0 && (
-              <div className="flex-shrink-0 twh-pager">
-                {Array.from({ length: dotsToShow }).map((_, k) => (
-                  <span key={k} className={`twh-pdot ${k === activeDot ? 'twh-pdot-active' : ''}`} />
-                ))}
+            {view === 'list' && (
+              <>
+                {/* mode strip */}
+                <div className="flex-shrink-0 twh-mode-strip">
+                  <div className="twh-mode-highlight" aria-hidden />
+                  <div className="twh-mode-mask-l" aria-hidden />
+                  <div className="twh-mode-mask-r" aria-hidden />
+                  <div className="twh-mode-track"
+                    onPointerDown={onModePointerDown}
+                    onPointerMove={onModePointerMove}
+                    onPointerUp={onModePointerUp}
+                    onPointerCancel={onModePointerCancel}
+                    style={{ touchAction: 'none' }}
+                  >
+                    {[-1, 0, 1].map((rel) => {
+                      const realIdx = modeWheel.getOffsetIdx(rel);
+                      if (realIdx == null) return null;
+                      const m = MODES[realIdx];
+                      if (!m) return null;
+                      const visualPos = rel * MODE_W + modeWheel.dragOffset;
+                      const distC = Math.abs(visualPos) / MODE_W;
+                      const scale = Math.max(0.7, 1 - distC * 0.18);
+                      const opacity = Math.max(0.2, Math.min(1, 1 - distC * 0.55));
+                      const isCenter = distC < 0.5;
+                      return (
+                        <button key={m.key}
+                          type="button"
+                          onClick={() => {
+                            if (modeWheel.isAnimating) return;
+                            if (Math.abs(modeWheel.dragOffsetRef.current) > 6) return;
+                            if (realIdx === modeWheel.idx) return;
+                            modeWheel.snapTo(realIdx, { animate: true });
+                          }}
+                          className={`twh-mode-cell ${isCenter ? 'twh-mode-cell-active' : ''}`}
+                          style={{
+                            transform: `translate(-50%, -50%) translateX(${visualPos}px) scale(${scale})`,
+                            opacity,
+                          }}
+                        >
+                          <span className="twh-mode-label">{m.label}</span>
+                          <span className="twh-mode-sub">{m.sub}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* preset cover-flow */}
+                <div className="flex-1 twh-cover-wrap min-h-0 relative">
+                  {currentMode === 'camera' ? (
+                    <div className="twh-camera">
+                      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                        <circle cx="12" cy="13" r="4" />
+                      </svg>
+                      <p className="text-[11px] font-mono uppercase tracking-wider text-text-3 mt-1">camera</p>
+                    </div>
+                  ) : presetList.length === 0 ? (
+                    <div className="twh-empty">
+                      <p className="text-[13px] text-text-3 font-mono">no preset</p>
+                      <button onClick={() => { api.clearDuplicate(); setView('create'); }} className="twh-empty-cta">＋ new</button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="twh-cover-mask-l" aria-hidden />
+                      <div className="twh-cover-mask-r" aria-hidden />
+
+                      <div className={`twh-swipe-hint twh-swipe-hint-top ${showDeleteHint ? 'twh-swipe-hint-on' : ''}`}
+                        style={{ opacity: showDeleteHint ? verticalIntensity : 0 }}
+                      >
+                        <span className="twh-swipe-hint-arrow">↑</span>
+                        <span>刪除</span>
+                      </div>
+                      <div className={`twh-swipe-hint twh-swipe-hint-bottom ${showEditHint ? 'twh-swipe-hint-on' : ''}`}
+                        style={{ opacity: showEditHint ? verticalIntensity : 0 }}
+                      >
+                        <span className="twh-swipe-hint-arrow">↓</span>
+                        <span>編輯</span>
+                      </div>
+
+                      <div className="twh-cover-track"
+                        onPointerDown={onPresetPointerDown}
+                        onPointerMove={onPresetPointerMove}
+                        onPointerUp={onPresetPointerUp}
+                        onPointerCancel={onPresetPointerCancel}
+                        onContextMenu={(e) => e.preventDefault()}
+                        style={{ touchAction: 'none' }}
+                      >
+                        {[-2, -1, 0, 1, 2].map((rel) => {
+                          const realIdx = presetWheel.getOffsetIdx(rel);
+                          if (realIdx == null) return null;
+                          const p = presetList[realIdx];
+                          if (!p) return null;
+                          const visualPos = rel * CARD_W + presetWheel.dragOffset;
+                          const distC = Math.abs(visualPos) / CARD_W;
+                          const scale = Math.max(0.5, 1 - distC * 0.09);
+                          const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
+                          const isCenter = distC < 0.5;
+                          const yOffset = isCenter ? verticalDrag * 0.35 : 0;
+                          return (
+                            <div key={`${p.id}-${rel}`}
+                              className={`twh-card ${isCenter ? 'twh-card-active' : ''} ${isCenter && pressing ? 'twh-card-pressing' : ''}`}
+                              style={{
+                                transform: `translate(${visualPos}px, ${yOffset}px) scale(${scale})`,
+                                opacity,
+                              }}
+                            >
+                              {isCenter && tickPulse > 0 && (
+                                <span key={`tk-${tickPulse}`} className="twh-card-tick" aria-hidden />
+                              )}
+                              {isCenter && pressing && (
+                                <svg className="twh-card-progress" viewBox={`0 0 ${CARD_INNER_W} ${CARD_INNER_H}`} preserveAspectRatio="none" aria-hidden>
+                                  <rect
+                                    className="twh-progress-rect"
+                                    x="1.5" y="1.5"
+                                    width={CARD_INNER_W - 3} height={CARD_INNER_H - 3}
+                                    rx="14.5" ry="14.5"
+                                    fill="none"
+                                    stroke="var(--color-accent)"
+                                    strokeWidth="3"
+                                    vectorEffect="non-scaling-stroke"
+                                    pathLength="1"
+                                  />
+                                </svg>
+                              )}
+                              <p className="twh-card-name">{p.name}</p>
+                              <p className="twh-card-kcal tabular">
+                                {Math.round(p.kcal)}<span className="text-[10px] text-text-3 ml-1">kcal</span>
+                              </p>
+                              {isCenter && (
+                                <p className="twh-card-macro tabular">
+                                  <span style={{ color: '#c8ff00' }}>P {Math.round(p.protein_g)}</span>
+                                  <span className="opacity-50 mx-1.5">·</span>
+                                  <span style={{ color: '#f5a623' }}>C {Math.round(p.carb_g)}</span>
+                                  <span className="opacity-50 mx-1.5">·</span>
+                                  <span style={{ color: '#a486f4' }}>F {Math.round(p.fat_g)}</span>
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* page dots（可滑） */}
+                {currentMode !== 'camera' && presetList.length > 0 && (
+                  <div className="flex-shrink-0 twh-pager-wrap"
+                    onPointerDown={onDotsPointerDown}
+                    onPointerMove={onDotsPointerMove}
+                    onPointerUp={onDotsPointerUp}
+                    onPointerCancel={onDotsPointerUp}
+                    style={{ touchAction: 'none' }}
+                  >
+                    <div className="twh-pager">
+                      {Array.from({ length: dotsToShow }).map((_, k) => (
+                        <span key={k} className={`twh-pdot ${k === activeDot ? 'twh-pdot-active' : ''}`} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 操作提示（替代 record button） */}
+                <div className="flex-shrink-0 px-5 pb-3 pt-1">
+                  <p className="twh-action-hint">
+                    {api.recordingId
+                      ? <span className="text-accent">recording…</span>
+                      : currentMode === 'camera'
+                      ? '點 ＋ 新增 · 下滑關閉'
+                      : currentPreset
+                      ? <>長按卡片 <span className="text-accent">1.5s</span> 記錄　·　↑刪除　·　↓編輯</>
+                      : '滑動選 preset · 點 ＋ 新增'}
+                  </p>
+                </div>
+              </>
+            )}
+
+            {view === 'create' && (
+              <div className="flex-1 px-5 pb-5 pt-2 min-h-0 overflow-y-auto">
+                <MockPresetForm
+                  submitLabel="保存"
+                  onSubmit={async (n, k) => {
+                    const ok = await api.addPreset(n, k);
+                    if (ok) setView('list');
+                  }}
+                  onCancel={() => { api.clearDuplicate(); setView('list'); }}
+                />
+                {api.duplicateName && (
+                  <p className="text-[11px] text-danger mt-3 text-center">已存在同名 preset，請改名</p>
+                )}
               </div>
             )}
 
-            <div className="flex-shrink-0 px-5 pb-3 pt-2">
-              <button onClick={onRec} disabled={(currentMode !== 'camera' && !currentPreset) || api.recordingId != null} className="twh-rec">
-                {api.recordingId ? 'recording…' : currentMode === 'camera' ? '📷 拍照' : '● 記錄這一筆'}
-              </button>
-            </div>
+            {view === 'edit' && currentPreset && (
+              <div className="flex-1 px-5 pb-5 pt-2 min-h-0 overflow-y-auto">
+                <MockPresetForm
+                  initial={{ name: currentPreset.name, kcal: currentPreset.kcal }}
+                  submitLabel="保存"
+                  onSubmit={async (n, k) => {
+                    const ok = await api.updatePreset(currentPreset.id, n, k);
+                    if (ok) setView('list');
+                  }}
+                  onCancel={() => { api.clearDuplicate(); setView('list'); }}
+                />
+                {api.duplicateName && (
+                  <p className="text-[11px] text-danger mt-3 text-center">已存在同名 preset，請改名</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      <PresetCrudModals
-        api={api} currentPreset={currentPreset}
-        menuOpen={false} setMenuOpen={() => {}}
-        createOpen={createOpen} setCreateOpen={setCreateOpen}
-        editOpen={editOpen} setEditOpen={setEditOpen}
-        delOpen={delOpen} setDelOpen={setDelOpen}
+      <InlineConfirmDialog
+        open={delOpen}
+        title="刪除這個 preset？"
+        body={currentPreset ? <span>將永久移除「<span className="text-text font-medium">{currentPreset.name}</span>」。</span> : null}
+        confirmText="刪除"
+        variant="danger"
+        onCancel={() => setDelOpen(false)}
+        onConfirm={async () => { if (currentPreset) await api.deletePreset(currentPreset.id); setDelOpen(false); }}
       />
 
       <style>{styles}</style>
@@ -451,6 +621,20 @@ const styles = `
   0%, 100% { opacity: 0.35; }
   50% { opacity: 0.6; }
 }
+@keyframes twh-progress-fill {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes twh-tick-pulse {
+  0% {
+    box-shadow: inset 0 0 0 2px rgba(200,255,0,0.85), 0 0 22px rgba(200,255,0,0.55);
+    background: rgba(200,255,0,0.07);
+  }
+  100% {
+    box-shadow: inset 0 0 0 0 rgba(200,255,0,0), 0 0 0 rgba(200,255,0,0);
+    background: rgba(200,255,0,0);
+  }
+}
 
 /* ========== 入口按钮 ========== */
 .twh-knob {
@@ -461,10 +645,7 @@ const styles = `
   background: radial-gradient(circle at 30% 30%, rgba(40,40,48,0.95), rgba(18,18,22,0.95));
   border: 1.5px solid var(--color-accent);
   backdrop-filter: blur(8px);
-  box-shadow:
-    0 10px 24px -6px rgba(0,0,0,0.7),
-    0 0 0 4px rgba(200,255,0,0.08),
-    inset 0 1px 0 rgba(255,255,255,0.06);
+  box-shadow: 0 10px 24px -6px rgba(0,0,0,0.7), 0 0 0 4px rgba(200,255,0,0.08), inset 0 1px 0 rgba(255,255,255,0.06);
 }
 .twh-knob:active { transform: scale(0.92); }
 .twh-knob-rule {
@@ -508,7 +689,7 @@ const styles = `
   animation: twh-glow-pulse 2.4s ease-in-out infinite;
 }
 
-/* ========== header（drag close handle） ========== */
+/* ========== header ========== */
 .twh-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 18px 8px;
@@ -516,9 +697,7 @@ const styles = `
   cursor: grab;
 }
 .twh-header:active { cursor: grabbing; }
-.twh-header-left {
-  pointer-events: none;
-}
+.twh-header-left { pointer-events: none; }
 .twh-icon-btn {
   width: 32px; height: 32px;
   background: rgba(28,28,34,0.7);
@@ -534,7 +713,7 @@ const styles = `
 }
 .twh-icon-btn:active { transform: scale(0.9); border-color: var(--color-accent); background: rgba(200,255,0,0.1); }
 
-/* ========== mode strip (cover-flow) ========== */
+/* ========== mode strip ========== */
 .twh-mode-strip {
   position: relative;
   height: 64px;
@@ -551,9 +730,7 @@ const styles = `
   border: 1px solid rgba(200,255,0,0.5);
   border-radius: 14px;
   background: rgba(200,255,0,0.05);
-  box-shadow:
-    inset 0 0 0 1px rgba(200,255,0,0.06),
-    0 0 16px rgba(200,255,0,0.15);
+  box-shadow: inset 0 0 0 1px rgba(200,255,0,0.06), 0 0 16px rgba(200,255,0,0.15);
   pointer-events: none;
   z-index: 1;
 }
@@ -572,7 +749,6 @@ const styles = `
 .twh-mode-cell {
   position: absolute;
   left: 50%; top: 50%;
-  /* transform 在 inline style，包含 translate(-50%,-50%) translateX(visualPos) scale(...) */
   width: ${MODE_W - 14}px;
   background: transparent;
   border: none;
@@ -585,11 +761,7 @@ const styles = `
   cursor: pointer;
   will-change: transform, opacity;
 }
-.twh-mode-label {
-  font-size: 19px;
-  font-weight: 600;
-  line-height: 1;
-}
+.twh-mode-label { font-size: 19px; font-weight: 600; line-height: 1; }
 .twh-mode-sub {
   font-family: 'JetBrains Mono', monospace;
   font-size: 8px;
@@ -598,9 +770,7 @@ const styles = `
   opacity: 0.5;
   line-height: 1;
 }
-.twh-mode-cell-active {
-  color: var(--color-accent);
-}
+.twh-mode-cell-active { color: var(--color-accent); }
 .twh-mode-cell-active .twh-mode-sub { opacity: 0.75; }
 
 /* ========== preset cover flow ========== */
@@ -625,9 +795,9 @@ const styles = `
 .twh-card {
   position: absolute;
   left: 0; top: 50%;
-  width: ${CARD_W - 16}px;
-  height: 118px;
-  margin-top: -59px;
+  width: ${CARD_INNER_W}px;
+  height: ${CARD_INNER_H}px;
+  margin-top: -${CARD_INNER_H / 2}px;
   background: linear-gradient(180deg, rgba(28,28,36,0.7) 0%, rgba(18,18,24,0.7) 100%);
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 16px;
@@ -665,30 +835,38 @@ const styles = `
 .twh-card-active {
   background: linear-gradient(180deg, rgba(36,40,24,0.85) 0%, rgba(20,22,18,0.95) 100%);
   border-color: rgba(200,255,0,0.55);
-  box-shadow:
-    0 14px 32px -12px rgba(0,0,0,0.7),
-    0 0 28px rgba(200,255,0,0.18),
-    inset 0 1px 0 rgba(200,255,0,0.12);
+  box-shadow: 0 14px 32px -12px rgba(0,0,0,0.7), 0 0 28px rgba(200,255,0,0.18), inset 0 1px 0 rgba(200,255,0,0.12);
 }
 .twh-card-active .twh-card-name { color: var(--color-accent); font-size: 18px; }
 .twh-card-active .twh-card-kcal { color: var(--color-accent); font-size: 24px; }
-
-/* detent 视觉脉冲（iOS 无 vibrate 时的 fallback） */
-@keyframes twh-tick-pulse {
-  0% {
-    box-shadow: inset 0 0 0 2px rgba(200,255,0,0.85), 0 0 22px rgba(200,255,0,0.55);
-    background: rgba(200,255,0,0.07);
-  }
-  100% {
-    box-shadow: inset 0 0 0 0 rgba(200,255,0,0), 0 0 0 rgba(200,255,0,0);
-    background: rgba(200,255,0,0);
-  }
+.twh-card-pressing {
+  border-color: rgba(200,255,0,0.8);
+  transform-origin: center;
 }
+
+/* detent 视觉脉冲 */
 .twh-card-tick {
   position: absolute; inset: 0;
   border-radius: 16px;
   pointer-events: none;
   animation: twh-tick-pulse 0.18s ease-out forwards;
+}
+
+/* SVG 长按进度环 */
+.twh-card-progress {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 2;
+}
+.twh-progress-rect {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: twh-progress-fill ${LONG_PRESS_MS}ms linear forwards;
+  filter: drop-shadow(0 0 6px rgba(200,255,0,0.5));
 }
 
 /* ========== swipe hint ========== */
@@ -710,25 +888,46 @@ const styles = `
   margin-bottom: 2px;
   text-shadow: 0 0 8px rgba(200,255,0,0.6);
 }
-.twh-swipe-hint-top { top: 8px; }
-.twh-swipe-hint-bottom { bottom: 8px; flex-direction: column-reverse; }
+.twh-swipe-hint-top { top: 6px; }
+.twh-swipe-hint-bottom { bottom: 6px; flex-direction: column-reverse; }
 .twh-swipe-hint-bottom .twh-swipe-hint-arrow { margin-top: 2px; margin-bottom: 0; }
 
-/* ========== page dots ========== */
+/* ========== page dots（可滑动） ========== */
+.twh-pager-wrap {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+  user-select: none;
+  cursor: grab;
+}
+.twh-pager-wrap:active { cursor: grabbing; }
 .twh-pager {
-  display: flex; gap: 6px; align-items: center; justify-content: center;
-  padding: 2px 0 6px;
+  display: flex; gap: 7px; align-items: center;
+  padding: 4px 14px;
+  background: rgba(255,255,255,0.025);
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.05);
 }
 .twh-pdot {
   width: 5px; height: 5px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.18);
   transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
 }
 .twh-pdot-active {
   background: var(--color-accent);
-  transform: scale(1.35);
+  transform: scale(1.4);
   box-shadow: 0 0 8px rgba(200,255,0,0.7);
+}
+
+.twh-action-hint {
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--color-text-3);
+  padding: 4px 0 0;
+  user-select: none;
 }
 
 .twh-camera, .twh-empty {
@@ -751,26 +950,4 @@ const styles = `
   cursor: pointer;
   box-shadow: 0 6px 16px -4px rgba(200,255,0,0.4);
 }
-
-/* ========== record button ========== */
-.twh-rec {
-  width: 100%;
-  background: linear-gradient(180deg, #d4ff1a 0%, #b8e600 100%);
-  color: var(--color-accent-ink);
-  border: none;
-  border-radius: 14px;
-  padding: 14px;
-  font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  cursor: pointer;
-  box-shadow:
-    0 10px 24px -8px rgba(200,255,0,0.5),
-    inset 0 1px 0 rgba(255,255,255,0.3),
-    inset 0 -1px 0 rgba(0,0,0,0.15);
-  transition: transform 0.12s, box-shadow 0.2s;
-}
-.twh-rec:active { transform: scale(0.98); box-shadow: 0 6px 14px -6px rgba(200,255,0,0.5), inset 0 1px 0 rgba(255,255,255,0.2); }
-.twh-rec:disabled { opacity: 0.35; box-shadow: none; cursor: not-allowed; }
 `;
