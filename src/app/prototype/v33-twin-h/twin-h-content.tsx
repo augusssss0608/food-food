@@ -178,7 +178,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
               onPointerMove={onTabsPointerMove}
               onPointerUp={onTabsPointerUp}
               onPointerCancel={() => { tabSwipeStart.current = null; tabSwipeMoved.current = false; }}
-              style={{ touchAction: 'pan-y' }}
+              style={{ touchAction: 'none' }}
             >
               {MODES.map((m, i) => {
                 const isActive = i === modeIdx;
@@ -366,7 +366,6 @@ const styles = `
   border-top-left-radius: 24px;
   border-top-right-radius: 24px;
   box-shadow: 0 -16px 48px -12px rgba(0,0,0,0.6);
-  position: relative;
   overflow: hidden;
 }
 .twh-glow {
