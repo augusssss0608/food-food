@@ -146,11 +146,15 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
       const absDx = Math.abs(dx);
       const absDy = Math.abs(dy);
       if (absDx > PRESET_AXIS_LOCK || absDy > PRESET_AXIS_LOCK) {
-        // 垂直且向下：交给 sheet close drag
-        modeGestureAxis.current = absDx > absDy ? 'horizontal' : 'vertical';
-        if (modeGestureAxis.current === 'vertical') {
+        if (absDx > absDy) {
+          modeGestureAxis.current = 'horizontal';
+        } else if (dy > 0) {
+          // 垂直向下：交给 sheet close drag；向上忽略（保留 horizontal 让 wheel 处理 dx）
+          modeGestureAxis.current = 'vertical';
           modeWheel.pointerHandlers.onPointerCancel(e);
           startCloseDrag(modeStartYRef.current);
+        } else {
+          modeGestureAxis.current = 'horizontal';
         }
       }
     }
