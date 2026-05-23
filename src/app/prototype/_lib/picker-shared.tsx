@@ -1,17 +1,20 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { UserMealPreset } from '@/lib/home-snapshot';
 import { MockPresetForm, InlineConfirmDialog } from './preset-manager';
 import type { HomeDataApi } from './use-home-data';
 
-/* ============ 横向 wheel picker hook（与 wheel-picker 对称，X 轴版） ============ */
+/* ============ 横向 wheel picker hook（带 RAF release 动画 + per-tick 触觉） ============ */
 export function useHWheelPicker(itemCount: number, itemWidth: number) {
   const [idx, setIdx] = useState(0);
   const [dragOffset, setDragOffset] = useState(0);
+  const [isAnimating, setIsAnimating] = useState(false);
   const startXRef = useRef<number | null>(null);
   const lastXRef = useRef<number | null>(null);
   const lastTRef = useRef<number | null>(null);
   const velRef = useRef<number>(0);
+  const tickRef = useRef<number>(0);
+  const rafRef = useRef<number | null>(null);
 
   const safeIdx = itemCount === 0 ? 0 : ((idx % itemCount) + itemCount) % itemCount;
 
@@ -20,18 +23,69 @@ export function useHWheelPicker(itemCount: number, itemWidth: number) {
     return ((safeIdx + rel) % itemCount + itemCount) % itemCount;
   }
 
+  function fireTick(strength = 3) {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate(strength); } catch {}
+    }
+  }
+
+  function cancelRaf() {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }
+
+  useEffect(() => () => cancelRaf(), []);
+
+  function animateTo(fromOffset: number, duration: number) {
+    setIsAnimating(true);
+    const startTime = performance.now();
+    let lastFrameTick = Math.round(fromOffset / itemWidth);
+    const step = (now: number) => {
+      const t = Math.min(1, (now - startTime) / duration);
+      // easeOutCubic
+      const eased = 1 - Math.pow(1 - t, 3);
+      const cur = fromOffset * (1 - eased);
+      const frameTick = Math.round(cur / itemWidth);
+      if (frameTick !== lastFrameTick) {
+        lastFrameTick = frameTick;
+        fireTick(2);
+      }
+      if (t < 1) {
+        setDragOffset(cur);
+        rafRef.current = requestAnimationFrame(step);
+      } else {
+        setDragOffset(0);
+        setIsAnimating(false);
+        rafRef.current = null;
+      }
+    };
+    rafRef.current = requestAnimationFrame(step);
+  }
+
   function onPointerDown(e: React.PointerEvent) {
     if (itemCount === 0) return;
+    cancelRaf();
+    setIsAnimating(false);
+    setDragOffset(0);
     startXRef.current = e.clientX;
     lastXRef.current = e.clientX;
     lastTRef.current = Date.now();
     velRef.current = 0;
+    tickRef.current = 0;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
   }
+
   function onPointerMove(e: React.PointerEvent) {
     if (startXRef.current == null) return;
     const dx = e.clientX - startXRef.current;
     setDragOffset(dx);
+    const newTick = Math.round(dx / itemWidth);
+    if (newTick !== tickRef.current) {
+      tickRef.current = newTick;
+      fireTick(3);
+    }
     if (lastXRef.current != null && lastTRef.current != null) {
       const dt = Date.now() - lastTRef.current;
       if (dt > 0) velRef.current = (e.clientX - lastXRef.current) / dt;
@@ -39,22 +93,35 @@ export function useHWheelPicker(itemCount: number, itemWidth: number) {
     lastXRef.current = e.clientX;
     lastTRef.current = Date.now();
   }
+
   function onPointerUp(_e?: React.PointerEvent) {
     if (startXRef.current == null) return;
     const dx = dragOffset;
+    const vel = velRef.current;
     let stepShift = -Math.round(dx / itemWidth);
-    if (Math.abs(velRef.current) > 0.4) stepShift += -Math.round(velRef.current * 6);
-    if (itemCount > 0 && stepShift !== 0) {
-      setIdx((i) => ((i + stepShift) % itemCount + itemCount) % itemCount);
-    }
-    setDragOffset(0);
+    if (Math.abs(vel) > 0.25) stepShift += -Math.round(vel * 6);
+    stepShift = Math.max(-6, Math.min(6, stepShift));
+
     startXRef.current = null;
     lastXRef.current = null;
     lastTRef.current = null;
     velRef.current = 0;
+
+    if (itemCount > 0 && stepShift !== 0) {
+      setIdx((i) => ((i + stepShift) % itemCount + itemCount) % itemCount);
+      // 视觉锚点：idx 跳完后，新 center 在 dx + stepShift*itemWidth 处，从那里平滑回 0
+      const visualFrom = dx + stepShift * itemWidth;
+      setDragOffset(visualFrom);
+      animateTo(visualFrom, 280);
+    } else {
+      animateTo(dx, 200);
+    }
   }
+
   function onPointerCancel(_e?: React.PointerEvent) {
+    cancelRaf();
     setDragOffset(0);
+    setIsAnimating(false);
     startXRef.current = null;
     lastXRef.current = null;
     lastTRef.current = null;
@@ -65,6 +132,7 @@ export function useHWheelPicker(itemCount: number, itemWidth: number) {
     idx: safeIdx,
     setIdx,
     dragOffset,
+    isAnimating,
     getOffsetIdx,
     pointerHandlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel },
   };

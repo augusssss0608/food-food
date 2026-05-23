@@ -7,11 +7,7 @@ import { useDelayedCommit } from '../_lib/use-delayed-commit';
 import { useHWheelPicker, PresetCrudModals, MODES, presetListForMode } from '../_lib/picker-shared';
 import type { HomeSnapshot } from '@/lib/home-snapshot';
 
-/**
- * v33 双横向：上方 mode strip + 下方 preset horizontal cover-flow。
- * 两层都横向滑动 + 停 1.2s 提交。
- */
-const MODE_W = 110;
+const MODE_W = 120;
 const CARD_W = 200;
 const LONG_PRESS_MS = 450;
 const COMMIT_DELAY = 1200;
@@ -35,13 +31,14 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   const presetList = useMemo(() => presetListForMode(api.presets, committedMode), [api.presets, committedMode]);
   const presetWheel = useHWheelPicker(presetList.length, CARD_W);
   const currentPreset = presetList[presetWheel.idx];
+  const canLongPress = committedMode !== 'camera' && currentPreset != null;
 
   function clearTimer() { if (longPressRef.current != null) { window.clearTimeout(longPressRef.current); longPressRef.current = null; } }
   function onPresetPointerDown(e: React.PointerEvent) {
     presetWheel.pointerHandlers.onPointerDown(e);
     longPressFiredRef.current = false;
     clearTimer();
-    if (committedMode === 'menu') {
+    if (canLongPress) {
       longPressRef.current = window.setTimeout(() => {
         longPressFiredRef.current = true;
         setMenuOpen(true);
@@ -60,7 +57,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   }
 
   return (
-    <PrototypeShell title="3. Twin Horizontal">
+    <PrototypeShell title="Twin Horizontal">
       <RealHomeShell api={api} rightAction={null} />
 
       <button type="button" onClick={() => setOpen(true)} aria-label="open twin h" className="z-[70]"
@@ -91,21 +88,23 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
             </div>
 
             {/* mode strip 横向 */}
-            <div className="flex-shrink-0 twh-mode-wrap">
+            <div className={`flex-shrink-0 twh-mode-wrap ${isExploring ? 'twh-mode-explore' : ''}`}>
               <div className="twh-mode-highlight" aria-hidden />
               <div className="twh-mode-mask-l" aria-hidden />
               <div className="twh-mode-mask-r" aria-hidden />
               <div className="twh-mode-track" {...modeWheel.pointerHandlers} style={{ touchAction: 'none' }}>
                 {MODES.map((m, i) => {
                   const offset = i - exploreModeIdx;
-                  const isCenter = i === exploreModeIdx;
+                  const visualPos = offset * MODE_W + modeWheel.dragOffset;
+                  const distC = Math.abs(visualPos) / MODE_W;
+                  const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
                   const isCommit = i === committedModeIdx;
                   return (
                     <div key={m.key}
-                      className={`twh-mode-cell ${isCenter ? 'twh-mode-cell-center' : ''} ${isCommit ? 'twh-mode-cell-commit' : ''}`}
+                      className={`twh-mode-cell ${isCommit ? 'twh-mode-cell-commit' : ''}`}
                       style={{
-                        transform: `translateX(${offset * MODE_W + modeWheel.dragOffset}px)`,
-                        opacity: Math.abs(offset) === 0 ? 1 : Math.abs(offset) === 1 ? 0.4 : 0.15,
+                        transform: `translateX(${visualPos}px)`,
+                        opacity,
                       }}
                     >
                       <span className="twh-mode-label">{m.label}</span>
@@ -114,7 +113,11 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                   );
                 })}
               </div>
-              {isExploring ? <p className="twh-explore">⟳ tune · hold to commit</p> : <p className="twh-commit">▸ {MODES[committedModeIdx]!.label}</p>}
+              <div className="twh-mode-dots">
+                {MODES.map((m, i) => (
+                  <span key={m.key} className={`twh-dot ${i === exploreModeIdx ? 'twh-dot-explore' : ''} ${i === committedModeIdx ? 'twh-dot-commit' : ''}`} />
+                ))}
+              </div>
             </div>
 
             {/* preset cover-flow */}
@@ -144,17 +147,20 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                     onContextMenu={(e) => e.preventDefault()}
                     style={{ touchAction: 'none' }}
                   >
-                    {[-2, -1, 0, 1, 2].map((offset) => {
-                      const p = presetList[presetWheel.getOffsetIdx(offset)];
+                    {[-2, -1, 0, 1, 2].map((rel) => {
+                      const p = presetList[presetWheel.getOffsetIdx(rel)];
                       if (!p) return null;
-                      const isCenter = offset === 0;
-                      const dist = Math.abs(offset);
+                      const visualPos = rel * CARD_W + presetWheel.dragOffset;
+                      const distC = Math.abs(visualPos) / CARD_W;
+                      const scale = Math.max(0.5, 1 - distC * 0.09);
+                      const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
+                      const isCenter = distC < 0.5;
                       return (
-                        <div key={`${p.id}-${offset}`}
+                        <div key={`${p.id}-${rel}`}
                           className={`twh-card ${isCenter ? 'twh-card-active' : ''}`}
                           style={{
-                            transform: `translateX(${offset * CARD_W + presetWheel.dragOffset}px) scale(${1 - dist * 0.08})`,
-                            opacity: dist === 0 ? 1 : dist === 1 ? 0.5 : 0.18,
+                            transform: `translateX(${visualPos}px) scale(${scale})`,
+                            opacity,
                           }}
                         >
                           <p className="twh-card-name">{p.name}</p>
@@ -174,6 +180,9 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                       );
                     })}
                   </div>
+                  {canLongPress && (
+                    <p className="twh-hint">長按 編輯／刪除</p>
+                  )}
                 </>
               )}
             </div>
@@ -189,7 +198,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
 
       <PresetCrudModals
         api={api} currentPreset={currentPreset}
-        menuOpen={menuOpen && committedMode === 'menu'} setMenuOpen={setMenuOpen}
+        menuOpen={menuOpen && canLongPress} setMenuOpen={setMenuOpen}
         createOpen={createOpen} setCreateOpen={setCreateOpen}
         editOpen={editOpen} setEditOpen={setEditOpen}
         delOpen={delOpen} setDelOpen={setDelOpen}
@@ -206,6 +215,10 @@ const styles = `
 @keyframes twh-dot-slide {
   0%, 100% { transform: translate(-50%, -50%) translateX(-6px); }
   50% { transform: translate(-50%, -50%) translateX(6px); }
+}
+@keyframes twh-explore-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(200,255,0,0); }
+  50% { box-shadow: inset 0 0 20px rgba(200,255,0,0.12); }
 }
 
 /* 按钮 = 横向刻度 + 居中圆点 */
@@ -269,17 +282,20 @@ const styles = `
 
 /* mode strip */
 .twh-mode-wrap {
-  position: relative; height: 76px; margin: 4px 0 6px; overflow: hidden;
+  position: relative; height: 84px; margin: 4px 0 4px; overflow: hidden;
+  transition: background 0.2s;
 }
+.twh-mode-explore { animation: twh-explore-pulse 1.4s ease-in-out infinite; }
 .twh-mode-highlight {
-  position: absolute; left: 50%; top: 8px;
+  position: absolute; left: 50%; top: 10px;
   transform: translateX(-50%);
-  width: 96px; height: 50px;
+  width: 104px; height: 54px;
   border: 1px solid var(--color-accent);
-  border-radius: 10px;
+  border-radius: 12px;
   background: rgba(200,255,0,0.06);
   z-index: 1;
   pointer-events: none;
+  box-shadow: 0 0 14px -4px rgba(200,255,0,0.4);
 }
 .twh-mode-mask-l, .twh-mode-mask-r {
   position: absolute; top: 0; bottom: 0; width: 60px;
@@ -288,22 +304,21 @@ const styles = `
 .twh-mode-mask-l { left: 0; background: linear-gradient(90deg, #161620 0%, rgba(22,22,32,0.7) 60%, transparent 100%); }
 .twh-mode-mask-r { right: 0; background: linear-gradient(-90deg, #161620 0%, rgba(22,22,32,0.7) 60%, transparent 100%); }
 .twh-mode-track {
-  position: absolute; left: 50%; top: 8px; bottom: 28px;
-  width: ${MODE_W}px; margin-left: -${MODE_W / 2}px;
+  position: absolute; left: 50%; top: 10px;
+  width: ${MODE_W}px; height: 54px; margin-left: -${MODE_W / 2}px;
   cursor: grab;
 }
 .twh-mode-track:active { cursor: grabbing; }
 .twh-mode-cell {
   position: absolute; left: 0; right: 0;
-  top: 50%; margin-top: -25px;
-  height: 50px;
+  top: 0; bottom: 0;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  transition: opacity 0.18s;
+  will-change: transform, opacity;
 }
 .twh-mode-label {
   font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
-  font-size: 20px; font-weight: 600;
+  font-size: 22px; font-weight: 600;
   color: var(--color-text);
   line-height: 1;
 }
@@ -313,22 +328,24 @@ const styles = `
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--color-text-3);
-  margin-top: 2px;
+  margin-top: 3px;
 }
-.twh-mode-cell-center .twh-mode-label { font-size: 24px; }
 .twh-mode-cell-commit .twh-mode-label { color: var(--color-accent); font-weight: 700; }
 .twh-mode-cell-commit .twh-mode-sub { color: var(--color-accent); opacity: 0.7; }
 
-.twh-explore, .twh-commit {
-  position: absolute; left: 50%; bottom: 4px;
+.twh-mode-dots {
+  position: absolute; left: 50%; bottom: 6px;
   transform: translateX(-50%);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px; letter-spacing: 0.14em;
-  text-transform: lowercase;
-  white-space: nowrap;
+  display: flex; gap: 6px;
 }
-.twh-explore { color: rgba(200,255,0,0.6); }
-.twh-commit { color: var(--color-accent); }
+.twh-dot {
+  width: 4px; height: 4px;
+  background: var(--color-hairline-strong);
+  border-radius: 50%;
+  transition: background 0.2s, transform 0.2s;
+}
+.twh-dot-explore { background: rgba(200,255,0,0.5); transform: scale(1.4); }
+.twh-dot-commit { background: var(--color-accent); transform: scale(1.4); box-shadow: 0 0 6px rgba(200,255,0,0.6); }
 
 /* preset cover flow */
 .twh-cover-wrap {
@@ -345,7 +362,7 @@ const styles = `
 .twh-cover-track {
   position: relative;
   width: ${CARD_W}px;
-  height: 140px;
+  height: 150px;
   cursor: grab;
 }
 .twh-cover-track:active { cursor: grabbing; }
@@ -353,16 +370,16 @@ const styles = `
   position: absolute;
   left: 0; top: 50%;
   width: ${CARD_W - 16}px;
-  height: 130px;
-  margin-top: -65px;
+  height: 134px;
+  margin-top: -67px;
   background: var(--color-surface-2);
   border: 1px solid var(--color-hairline);
-  border-radius: 12px;
+  border-radius: 14px;
   display: flex; flex-direction: column;
   justify-content: center; align-items: center;
   padding: 12px;
   font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
-  transition: opacity 0.18s, transform 0.18s;
+  will-change: transform, opacity;
 }
 .twh-card-name {
   font-size: 17px;
@@ -391,10 +408,22 @@ const styles = `
 .twh-card-active {
   background: linear-gradient(180deg, rgba(28,28,34,0.95) 0%, rgba(20,20,26,1) 100%);
   border-color: var(--color-accent);
-  box-shadow: 0 12px 28px -10px rgba(0,0,0,0.7), 0 0 24px rgba(200,255,0,0.16);
+  box-shadow: 0 12px 28px -10px rgba(0,0,0,0.7), 0 0 22px rgba(200,255,0,0.14);
 }
 .twh-card-active .twh-card-name { color: var(--color-accent); font-size: 19px; }
 .twh-card-active .twh-card-kcal { color: var(--color-accent); font-size: 26px; }
+
+.twh-hint {
+  position: absolute; left: 50%; bottom: 6px;
+  transform: translateX(-50%);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--color-text-4);
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 4;
+}
 
 .twh-camera, .twh-empty {
   position: absolute; inset: 0;
