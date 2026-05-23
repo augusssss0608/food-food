@@ -7,10 +7,12 @@ import type { HomeDataApi } from './use-home-data';
 /* ============ 横向 wheel picker hook（RAF + per-tick 触觉 + 可选 cyclic） ============ */
 export interface UseHWheelPickerOptions {
   cyclic?: boolean; // 默认 true：list 大、首尾循环；小 list（如 mode）传 false 走线性
+  maxStep?: number; // 单次 release 最多切几格，默认 8；mode 等小列表可设 1
+  onTick?: () => void; // 跨整数刻度（半格 detent crossing）时触发，给 caller 加视觉反馈
 }
 
 export function useHWheelPicker(itemCount: number, itemWidth: number, options: UseHWheelPickerOptions = {}) {
-  const { cyclic = true } = options;
+  const { cyclic = true, maxStep = 8, onTick } = options;
   const [idx, setIdxState] = useState(0);
   const [dragOffset, setDragOffsetState] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -128,6 +130,7 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
     if (newTick !== tickRef.current) {
       tickRef.current = newTick;
       fireTick(3);
+      onTick?.();
     }
     if (lastXRef.current != null && lastTRef.current != null) {
       const dt = Date.now() - lastTRef.current;
@@ -154,7 +157,8 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
       else if (finalIdx > itemCount - 1) stepShift = itemCount - 1 - safeIdx;
     }
     // 先做 global clamp 再做 cyclic modulo 保护，避免 clamp 把保护后的值又掰回原点
-    stepShift = Math.max(-8, Math.min(8, stepShift));
+    const hardCap = Math.max(1, Math.min(8, maxStep));
+    stepShift = Math.max(-hardCap, Math.min(hardCap, stepShift));
     if (cyclic && itemCount > 0 && stepShift !== 0 && stepShift % itemCount === 0) {
       stepShift = stepShift > 0 ? stepShift - 1 : stepShift + 1;
     }
@@ -184,9 +188,30 @@ export function useHWheelPicker(itemCount: number, itemWidth: number, options: U
     velRef.current = 0;
   }
 
+  // 程序化跳转到指定 idx，可选走 RAF 动画（点击 side cell 用）
+  function snapTo(targetIdx: number, opts: { animate?: boolean } = {}) {
+    if (itemCount === 0) return;
+    const clamped = clampIdx(targetIdx);
+    const delta = clamped - safeIdx;
+    if (delta === 0) return;
+    cancelRaf();
+    setIdxState(clamped);
+    if (opts.animate) {
+      const visualFrom = delta * itemWidth + dragOffsetRef.current;
+      setDragOffset(visualFrom);
+      animateTo(visualFrom, 280);
+    } else {
+      setDragOffset(0);
+    }
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate(6); } catch {}
+    }
+  }
+
   return {
     idx: safeIdx,
     setIdx,
+    snapTo,
     dragOffset,
     dragOffsetRef,
     isAnimating,

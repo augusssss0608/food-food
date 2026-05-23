@@ -6,11 +6,11 @@ import { useHomeData } from '../_lib/use-home-data';
 import { useHWheelPicker, PresetCrudModals, MODES, presetListForMode } from '../_lib/picker-shared';
 import type { HomeSnapshot } from '@/lib/home-snapshot';
 
+const MODE_W = 116;
 const CARD_W = 200;
-const TAB_SWIPE_THRESHOLD = 28; // 横向滑动多少 px 算切一格
-const TAB_AXIS_LOCK = 6;        // 视为开始有意识滑动的最小位移
 const PRESET_AXIS_LOCK = 8;     // preset 手势主轴判定阈值
-const VERTICAL_TRIGGER = 60;    // 垂直滑动多少 px 触发编辑/删除
+const VERTICAL_TRIGGER = 60;    // preset 垂直滑动多少 px 触发 edit/delete
+const CLOSE_DRAG_TRIGGER = 90;  // header 向下拖多少 px 关闭 sheet
 
 export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot }) {
   const api = useHomeData(initialSnapshot);
@@ -18,45 +18,14 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false); // 不再用，但保留 prop 以兼容 PresetCrudModals
 
-  const [modeIdx, setModeIdx] = useState(0);
-  const currentMode = MODES[modeIdx]!.key;
+  // —— mode wheel：非循环 + 一次最多 1 格 + click 走 snapTo 动画 ——
+  const modeWheel = useHWheelPicker(MODES.length, MODE_W, { cyclic: false, maxStep: 1 });
+  const currentMode = MODES[modeWheel.idx]!.key;
 
   const presetList = useMemo(() => presetListForMode(api.presets, currentMode), [api.presets, currentMode]);
   const presetWheel = useHWheelPicker(presetList.length, CARD_W);
   const currentPreset = presetList[presetWheel.idx];
-
-  // —— mode tabs：点击 + 横向 swipe（一次一格）——
-  const tabSwipeStart = useRef<number | null>(null);
-  const tabSwipeMoved = useRef(false);
-  function onTabsPointerDown(e: React.PointerEvent) {
-    tabSwipeStart.current = e.clientX;
-    tabSwipeMoved.current = false;
-  }
-  function onTabsPointerMove(e: React.PointerEvent) {
-    if (tabSwipeStart.current == null) return;
-    if (Math.abs(e.clientX - tabSwipeStart.current) > TAB_AXIS_LOCK) tabSwipeMoved.current = true;
-  }
-  function onTabsPointerUp(e: React.PointerEvent) {
-    if (tabSwipeStart.current == null) return;
-    const dx = e.clientX - tabSwipeStart.current;
-    tabSwipeStart.current = null;
-    if (Math.abs(dx) > TAB_SWIPE_THRESHOLD) {
-      const dir = dx < 0 ? 1 : -1;
-      setModeIdx((i) => Math.max(0, Math.min(MODES.length - 1, i + dir)));
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        try { navigator.vibrate(6); } catch {}
-      }
-    }
-  }
-  function pickModeViaClick(i: number) {
-    if (tabSwipeMoved.current) return; // 滑动手势中的 click 忽略
-    setModeIdx(i);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      try { navigator.vibrate(6); } catch {}
-    }
-  }
 
   // —— preset 手势：水平 = wheel，垂直 = 上滑删除 / 下滑编辑 ——
   const gestureAxis = useRef<'idle' | 'horizontal' | 'vertical'>('idle');
@@ -81,7 +50,6 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
       if (absDx > PRESET_AXIS_LOCK || absDy > PRESET_AXIS_LOCK) {
         gestureAxis.current = absDx > absDy ? 'horizontal' : 'vertical';
         if (gestureAxis.current === 'vertical') {
-          // 取消 wheel 拖曳（让它弹回原位）
           presetWheel.pointerHandlers.onPointerCancel(e);
         }
       }
@@ -121,12 +89,42 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     setVerticalDrag(0);
   }
 
+  // —— sheet header 下拉关闭 ——
+  const closeStartY = useRef<number | null>(null);
+  const closeDragMoved = useRef(false);
+  const [closeDragY, setCloseDragY] = useState(0);
+  function onCloseDragDown(e: React.PointerEvent) {
+    closeStartY.current = e.clientY;
+    closeDragMoved.current = false;
+  }
+  function onCloseDragMove(e: React.PointerEvent) {
+    if (closeStartY.current == null) return;
+    const dy = e.clientY - closeStartY.current;
+    if (Math.abs(dy) > 4) closeDragMoved.current = true;
+    setCloseDragY(dy > 0 ? dy : 0);
+  }
+  function onCloseDragUp(e: React.PointerEvent) {
+    if (closeStartY.current == null) return;
+    const dy = e.clientY - closeStartY.current;
+    closeStartY.current = null;
+    if (dy > CLOSE_DRAG_TRIGGER) {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+      setOpen(false);
+    }
+    setCloseDragY(0);
+  }
+  function onCloseDragCancel() {
+    closeStartY.current = null;
+    closeDragMoved.current = false;
+    setCloseDragY(0);
+  }
+
   async function onRec() {
     if (currentMode === 'camera') return;
     if (currentPreset) { const ok = await api.recordCustomPreset(currentPreset); if (ok) setOpen(false); }
   }
 
-  // page indicator 计算
+  // page indicator dots
   const total = presetList.length;
   const maxDots = 7;
   const dotsToShow = Math.min(total, maxDots);
@@ -157,42 +155,83 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
         <div className="fixed inset-0 z-[80]" style={{ animation: 'ff-fade-in 0.2s ease-out both' }}>
           <div className="absolute inset-0 bg-ink/85 backdrop-blur-md" onClick={() => setOpen(false)} />
           <div className="absolute left-0 right-0 bottom-0 twh-sheet"
-            style={{ height: '52vh', animation: 'sheet-up 0.32s var(--ease-out-soft) both', paddingBottom: 'env(safe-area-inset-bottom)' }}
+            style={{
+              height: '52vh',
+              animation: 'sheet-up 0.32s var(--ease-out-soft) both',
+              paddingBottom: 'env(safe-area-inset-bottom)',
+              transform: `translateY(${closeDragY}px)`,
+              transition: closeStartY.current == null ? 'transform 0.25s var(--ease-out-soft)' : 'none',
+            }}
           >
             <div className="twh-glow" aria-hidden />
-            <div className="twh-handle" />
-            <div className="flex-shrink-0 flex items-center justify-between px-5 pt-1 pb-2">
-              <div>
+
+            {/* header：drag handle 用于下拉关闭，整个区域可触发 */}
+            <div className="twh-header flex-shrink-0"
+              onPointerDown={onCloseDragDown}
+              onPointerMove={onCloseDragMove}
+              onPointerUp={onCloseDragUp}
+              onPointerCancel={onCloseDragCancel}
+              style={{ touchAction: 'none' }}
+            >
+              <div className="twh-header-left">
                 <p className="text-[9px] uppercase tracking-[0.3em] text-text-3 font-mono">add meal</p>
                 <p className="display-roman text-[18px] leading-none mt-0.5">記一筆</p>
               </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => { api.clearDuplicate(); setCreateOpen(true); }} className="twh-icon-btn" aria-label="new preset">＋</button>
-                <button onClick={() => setOpen(false)} className="text-[11px] text-text-3 font-mono active:scale-95 px-1">close</button>
-              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (closeDragMoved.current) return;
+                  api.clearDuplicate();
+                  setCreateOpen(true);
+                }}
+                className="twh-icon-btn"
+                aria-label="new preset"
+              >＋</button>
             </div>
 
-            {/* mode tabs */}
-            <div className="flex-shrink-0 twh-tabs"
-              onPointerDown={onTabsPointerDown}
-              onPointerMove={onTabsPointerMove}
-              onPointerUp={onTabsPointerUp}
-              onPointerCancel={() => { tabSwipeStart.current = null; tabSwipeMoved.current = false; }}
-              style={{ touchAction: 'none' }}
-            >
-              {MODES.map((m, i) => {
-                const isActive = i === modeIdx;
-                return (
-                  <button key={m.key}
-                    onClick={() => pickModeViaClick(i)}
-                    className={`twh-tab ${isActive ? 'twh-tab-active' : ''}`}
-                    aria-pressed={isActive}
-                  >
-                    <span className="twh-tab-label">{m.label}</span>
-                    <span className="twh-tab-sub">{m.sub}</span>
-                  </button>
-                );
-              })}
+            {/* mode wheel：3 个 mode 横向 cover-flow + 可点 */}
+            <div className="flex-shrink-0 twh-mode-strip">
+              <div className="twh-mode-highlight" aria-hidden />
+              <div className="twh-mode-mask-l" aria-hidden />
+              <div className="twh-mode-mask-r" aria-hidden />
+              <div className="twh-mode-track"
+                onPointerDown={modeWheel.pointerHandlers.onPointerDown}
+                onPointerMove={modeWheel.pointerHandlers.onPointerMove}
+                onPointerUp={modeWheel.pointerHandlers.onPointerUp}
+                onPointerCancel={modeWheel.pointerHandlers.onPointerCancel}
+                style={{ touchAction: 'none' }}
+              >
+                {[-1, 0, 1].map((rel) => {
+                  const realIdx = modeWheel.getOffsetIdx(rel);
+                  if (realIdx == null) return null;
+                  const m = MODES[realIdx];
+                  if (!m) return null;
+                  const visualPos = rel * MODE_W + modeWheel.dragOffset;
+                  const distC = Math.abs(visualPos) / MODE_W;
+                  const scale = Math.max(0.7, 1 - distC * 0.18);
+                  const opacity = Math.max(0.2, Math.min(1, 1 - distC * 0.55));
+                  const isCenter = distC < 0.5;
+                  return (
+                    <button key={m.key}
+                      type="button"
+                      onClick={() => {
+                        if (modeWheel.isAnimating) return;
+                        if (Math.abs(modeWheel.dragOffsetRef.current) > 6) return;
+                        if (realIdx === modeWheel.idx) return;
+                        modeWheel.snapTo(realIdx, { animate: true });
+                      }}
+                      className={`twh-mode-cell ${isCenter ? 'twh-mode-cell-active' : ''}`}
+                      style={{
+                        transform: `translate(-50%, -50%) translateX(${visualPos}px) scale(${scale})`,
+                        opacity,
+                      }}
+                    >
+                      <span className="twh-mode-label">{m.label}</span>
+                      <span className="twh-mode-sub">{m.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* preset cover-flow */}
@@ -215,14 +254,12 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                   <div className="twh-cover-mask-l" aria-hidden />
                   <div className="twh-cover-mask-r" aria-hidden />
 
-                  {/* swipe-up 删除提示 */}
                   <div className={`twh-swipe-hint twh-swipe-hint-top ${showDeleteHint ? 'twh-swipe-hint-on' : ''}`}
                     style={{ opacity: showDeleteHint ? verticalIntensity : 0 }}
                   >
                     <span className="twh-swipe-hint-arrow">↑</span>
                     <span>刪除</span>
                   </div>
-                  {/* swipe-down 编辑提示 */}
                   <div className={`twh-swipe-hint twh-swipe-hint-bottom ${showEditHint ? 'twh-swipe-hint-on' : ''}`}
                     style={{ opacity: showEditHint ? verticalIntensity : 0 }}
                   >
@@ -248,7 +285,6 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                       const scale = Math.max(0.5, 1 - distC * 0.09);
                       const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
                       const isCenter = distC < 0.5;
-                      // 只对 center card 加垂直跟手位移
                       const yOffset = isCenter ? verticalDrag * 0.35 : 0;
                       return (
                         <div key={`${p.id}-${rel}`}
@@ -279,19 +315,16 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
               )}
             </div>
 
-            {/* page indicator + 手势 hint */}
+            {/* page dots（不含 idx/total 文字） */}
             {currentMode !== 'camera' && presetList.length > 0 && (
-              <div className="flex-shrink-0 twh-pager-wrap">
-                <div className="twh-pager">
-                  {Array.from({ length: dotsToShow }).map((_, k) => (
-                    <span key={k} className={`twh-pdot ${k === activeDot ? 'twh-pdot-active' : ''}`} />
-                  ))}
-                </div>
-                <p className="twh-pager-text tabular">{presetWheel.idx + 1} / {total}</p>
+              <div className="flex-shrink-0 twh-pager">
+                {Array.from({ length: dotsToShow }).map((_, k) => (
+                  <span key={k} className={`twh-pdot ${k === activeDot ? 'twh-pdot-active' : ''}`} />
+                ))}
               </div>
             )}
 
-            <div className="flex-shrink-0 px-5 pb-3 pt-1">
+            <div className="flex-shrink-0 px-5 pb-3 pt-2">
               <button onClick={onRec} disabled={(currentMode !== 'camera' && !currentPreset) || api.recordingId != null} className="twh-rec">
                 {api.recordingId ? 'recording…' : currentMode === 'camera' ? '📷 拍照' : '● 記錄這一筆'}
               </button>
@@ -302,7 +335,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
 
       <PresetCrudModals
         api={api} currentPreset={currentPreset}
-        menuOpen={menuOpen} setMenuOpen={setMenuOpen}
+        menuOpen={false} setMenuOpen={() => {}}
         createOpen={createOpen} setCreateOpen={setCreateOpen}
         editOpen={editOpen} setEditOpen={setEditOpen}
         delOpen={delOpen} setDelOpen={setDelOpen}
@@ -367,6 +400,7 @@ const styles = `
   border-top-right-radius: 24px;
   box-shadow: 0 -16px 48px -12px rgba(0,0,0,0.6);
   overflow: hidden;
+  will-change: transform;
 }
 .twh-glow {
   position: absolute;
@@ -378,11 +412,17 @@ const styles = `
   pointer-events: none;
   animation: twh-glow-pulse 2.4s ease-in-out infinite;
 }
-.twh-handle {
-  width: 36px; height: 4px;
-  background: linear-gradient(90deg, transparent, rgba(200,255,0,0.4), transparent);
-  border-radius: 999px;
-  margin: 9px auto 4px;
+
+/* ========== header（drag close handle） ========== */
+.twh-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px 8px;
+  user-select: none;
+  cursor: grab;
+}
+.twh-header:active { cursor: grabbing; }
+.twh-header-left {
+  pointer-events: none;
 }
 .twh-icon-btn {
   width: 32px; height: 32px;
@@ -399,61 +439,74 @@ const styles = `
 }
 .twh-icon-btn:active { transform: scale(0.9); border-color: var(--color-accent); background: rgba(200,255,0,0.1); }
 
-/* ========== mode tabs ========== */
-.twh-tabs {
-  display: flex;
-  gap: 6px;
-  padding: 4px 16px 12px;
+/* ========== mode strip (cover-flow) ========== */
+.twh-mode-strip {
+  position: relative;
+  height: 64px;
+  margin: 0 0 8px;
+  overflow: hidden;
   user-select: none;
 }
-.twh-tab {
-  flex: 1;
-  position: relative;
-  background: rgba(255,255,255,0.025);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 14px;
-  padding: 10px 4px 8px;
-  font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
-  color: var(--color-text-2);
-  cursor: pointer;
-  display: flex; flex-direction: column;
-  align-items: center; gap: 3px;
-  transition: background 0.22s, border-color 0.22s, color 0.22s, transform 0.12s, box-shadow 0.22s;
-  overflow: hidden;
-}
-.twh-tab:active { transform: scale(0.96); }
-.twh-tab::after {
-  content: '';
+.twh-mode-highlight {
   position: absolute;
-  left: 50%; bottom: 5px;
-  transform: translateX(-50%) scaleX(0);
-  width: 18px; height: 2px;
-  background: var(--color-accent);
-  border-radius: 999px;
-  transition: transform 0.25s var(--ease-out-soft);
-  transform-origin: center;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: ${MODE_W - 10}px;
+  height: 50px;
+  border: 1px solid rgba(200,255,0,0.5);
+  border-radius: 14px;
+  background: rgba(200,255,0,0.05);
+  box-shadow:
+    inset 0 0 0 1px rgba(200,255,0,0.06),
+    0 0 16px rgba(200,255,0,0.15);
+  pointer-events: none;
+  z-index: 1;
 }
-.twh-tab-label {
-  font-size: 17px;
+.twh-mode-mask-l, .twh-mode-mask-r {
+  position: absolute; top: 0; bottom: 0; width: 60px;
+  pointer-events: none; z-index: 2;
+}
+.twh-mode-mask-l { left: 0; background: linear-gradient(90deg, #0a0a0d 0%, rgba(10,10,13,0.7) 50%, transparent 100%); }
+.twh-mode-mask-r { right: 0; background: linear-gradient(-90deg, #0a0a0d 0%, rgba(10,10,13,0.7) 50%, transparent 100%); }
+.twh-mode-track {
+  position: absolute;
+  left: 0; right: 0; top: 0; bottom: 0;
+  cursor: grab;
+}
+.twh-mode-track:active { cursor: grabbing; }
+.twh-mode-cell {
+  position: absolute;
+  left: 50%; top: 50%;
+  /* transform 在 inline style，包含 translate(-50%,-50%) translateX(visualPos) scale(...) */
+  width: ${MODE_W - 14}px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-2);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 3px;
+  padding: 6px 4px;
+  font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
+  cursor: pointer;
+  will-change: transform, opacity;
+}
+.twh-mode-label {
+  font-size: 19px;
   font-weight: 600;
   line-height: 1;
 }
-.twh-tab-sub {
+.twh-mode-sub {
   font-family: 'JetBrains Mono', monospace;
   font-size: 8px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  opacity: 0.45;
+  opacity: 0.5;
   line-height: 1;
 }
-.twh-tab-active {
-  background: linear-gradient(180deg, rgba(200,255,0,0.16) 0%, rgba(200,255,0,0.04) 100%);
-  border-color: rgba(200,255,0,0.55);
+.twh-mode-cell-active {
   color: var(--color-accent);
-  box-shadow: inset 0 0 0 1px rgba(200,255,0,0.1), 0 6px 16px -8px rgba(200,255,0,0.4);
 }
-.twh-tab-active .twh-tab-sub { opacity: 0.7; }
-.twh-tab-active::after { transform: translateX(-50%) scaleX(1); }
+.twh-mode-cell-active .twh-mode-sub { opacity: 0.75; }
 
 /* ========== preset cover flow ========== */
 .twh-cover-wrap {
@@ -548,14 +601,10 @@ const styles = `
 .twh-swipe-hint-bottom { bottom: 8px; flex-direction: column-reverse; }
 .twh-swipe-hint-bottom .twh-swipe-hint-arrow { margin-top: 2px; margin-bottom: 0; }
 
-/* ========== page indicator ========== */
-.twh-pager-wrap {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 4px;
-  padding: 2px 0 6px;
-}
+/* ========== page dots ========== */
 .twh-pager {
-  display: flex; gap: 6px; align-items: center;
+  display: flex; gap: 6px; align-items: center; justify-content: center;
+  padding: 2px 0 6px;
 }
 .twh-pdot {
   width: 5px; height: 5px;
@@ -567,13 +616,6 @@ const styles = `
   background: var(--color-accent);
   transform: scale(1.35);
   box-shadow: 0 0 8px rgba(200,255,0,0.7);
-}
-.twh-pager-text {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  color: var(--color-text-4);
-  text-transform: uppercase;
 }
 
 .twh-camera, .twh-empty {
