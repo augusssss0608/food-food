@@ -97,7 +97,25 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   const closeStartY = useRef<number | null>(null);
   const closeDragMoved = useRef(false);
   const [closeDragY, setCloseDragY] = useState(0);
+  const [closing, setClosing] = useState(false);
+  const closingTimerRef = useRef<number | null>(null);
+
+  // 通用：触发关闭动画（点击 backdrop 也用），sheet 滑出 + backdrop fade
+  function triggerClose() {
+    if (closing) return;
+    setClosing(true);
+    setCloseDragY(typeof window !== 'undefined' ? window.innerHeight : 800);
+    if (closingTimerRef.current) window.clearTimeout(closingTimerRef.current);
+    closingTimerRef.current = window.setTimeout(() => {
+      setOpen(false);
+      setClosing(false);
+      setCloseDragY(0);
+      closingTimerRef.current = null;
+    }, 320);
+  }
+
   function startCloseDrag(clientY: number) {
+    if (closing) return;
     closeStartY.current = clientY;
     closeDragMoved.current = false;
   }
@@ -113,14 +131,15 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     closeStartY.current = null;
     if (dy > CLOSE_DRAG_TRIGGER) {
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
-      setOpen(false);
+      triggerClose();
+    } else {
+      setCloseDragY(0); // 没过阈值 → 回弹
     }
-    setCloseDragY(0);
   }
   function cancelCloseDrag() {
     closeStartY.current = null;
     closeDragMoved.current = false;
-    setCloseDragY(0);
+    if (!closing) setCloseDragY(0);
   }
 
   function onCloseDragDown(e: React.PointerEvent) { startCloseDrag(e.clientY); }
@@ -217,15 +236,23 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[80]" style={{ animation: 'ff-fade-in 0.2s ease-out both' }}>
-          <div className="absolute inset-0 bg-ink/85 backdrop-blur-md" onClick={() => setOpen(false)} />
+        <div className="fixed inset-0 z-[80]">
+          <div className="absolute inset-0 bg-ink/85 backdrop-blur-md"
+            onClick={() => { if (!closing) triggerClose(); }}
+            style={{
+              animation: closing ? undefined : 'ff-fade-in 0.2s ease-out both',
+              opacity: closing ? 0 : 1,
+              transition: closing ? 'opacity 0.3s ease-in' : undefined,
+            }}
+          />
           <div className="absolute left-0 right-0 bottom-0 twh-sheet"
             style={{
               height: '52vh',
-              animation: 'sheet-up 0.32s var(--ease-out-soft) both',
+              animation: closing ? undefined : 'sheet-up 0.32s var(--ease-out-soft) both',
               paddingBottom: 'env(safe-area-inset-bottom)',
               transform: `translateY(${closeDragY}px)`,
-              transition: closeStartY.current == null ? 'transform 0.25s var(--ease-out-soft)' : 'none',
+              transition: closeStartY.current == null ? 'transform 0.3s var(--ease-out-soft)' : 'none',
+              pointerEvents: closing ? 'none' : undefined,
             }}
           >
             <div className="twh-glow" aria-hidden />
