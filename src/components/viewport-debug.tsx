@@ -26,8 +26,8 @@ export function ViewportDebug() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const sp = new URLSearchParams(window.location.search);
-    if (sp.get('debugViewport') !== '1') return;
+    // 臨時：默認啟用（PWA standalone 不會帶 query string，沒法用 ?debugViewport=1 觸發）
+    // 用戶截圖後撤回此改動
     setEnabled(true);
 
     function update() {
@@ -70,13 +70,14 @@ export function ViewportDebug() {
       <div style={{ position: 'fixed', left: 0, right: 0, top: `${data.vvH - 2}px`, height: 2, background: 'yellow' }} />
       {/* 綠線：main.bottom */}
       <div style={{ position: 'fixed', left: 0, right: 0, top: `${data.mainBottom - 2}px`, height: 2, background: '#0f0' }} />
-      {/* 數值面板 */}
+      {/* 數值面板（右下，方便截圖底部黑區同框） */}
       <div style={{
-        position: 'fixed', left: 6, top: 56, padding: 8, background: 'rgba(0,0,0,0.8)',
+        position: 'fixed', right: 6, bottom: 6, padding: 8, background: 'rgba(0,0,0,0.85)',
         color: 'white', fontFamily: 'monospace', fontSize: 10, lineHeight: 1.4,
         borderRadius: 6, maxWidth: 260, pointerEvents: 'auto',
+        border: '1px solid #c8ff00',
       }}>
-        <div>standalone: <b>{String(data.standalone)}</b></div>
+        <div>standalone: <b style={{ color: data.standalone ? '#0f0' : '#f88' }}>{String(data.standalone)}</b></div>
         <div style={{ color: 'red' }}>innerHeight: {data.innerH}</div>
         <div>outerHeight: {data.outerH}</div>
         <div>screen.h: {data.screenH}</div>
