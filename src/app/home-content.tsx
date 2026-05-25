@@ -516,6 +516,7 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
         onOpen={tryOpenAddMeal}
         onClose={() => { setAddMealOpen(false); setDuplicatePresetName(false); }}
         customPresets={customPresets}
+        recentPhotoMeals={recentPhotoMeals}
         recordingId={presetBusy}
         onPickCustomPreset={pickCustomPreset}
         presetBusy={createPresetBusy}

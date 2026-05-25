@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { UserMealPreset } from '@/lib/home-snapshot';
+import type { UserMealPreset, RecentPhotoMeal } from '@/lib/home-snapshot';
 import { useHWheelPicker } from '@/lib/h-wheel-picker';
-import { MealPresetForm, type MealPresetFormInput } from '@/components/meal-preset-form';
+import { MealPresetForm, type MealPresetFormInput, type MealPresetFormPrefill } from '@/components/meal-preset-form';
 import { Dialog } from '@/components/ui/dialog';
 import { MealPreviewCard, type MealPreview } from '@/components/meal-preview-card';
 import { Spinner } from '@/components/ui/spinner';
@@ -18,23 +18,69 @@ const VERTICAL_TRIGGER = 60;
 const CLOSE_DRAG_TRIGGER = 90;
 const DOT_PIXEL = 22;
 const LONG_PRESS_MS = 800;
+const RECENT_PHOTO_MAX = 5; // 拍照 mode 下方近期橫列展示上限
 
-type Mode = 'recent' | 'menu' | 'camera';
-const MODES: { key: Mode; label: string; sub: string }[] = [
-  { key: 'recent', label: '近期', sub: 'recent' },
-  { key: 'menu',   label: '菜單', sub: 'menu' },
-  { key: 'camera', label: '拍照', sub: 'camera' },
-];
+type ModeItem = {
+  key: string;
+  label: string;
+  sub: string;
+  /** true 时表示「拍照」mode（虛線按鈕 + 近期橫列） */
+  isCamera: boolean;
+  /** 非 camera mode：归属的 category 名称。null = 未分類（pseudo-mode） */
+  category: string | null;
+};
+const CAMERA_MODE: ModeItem = {
+  key: '__camera__', label: '拍照', sub: 'camera', isCamera: true, category: null,
+};
+const UNCATEGORIZED_MODE: ModeItem = {
+  key: '__uncat__', label: '未分類', sub: 'menu', isCamera: false, category: null,
+};
 
-function presetListForMode(presets: UserMealPreset[], mode: Mode): UserMealPreset[] {
-  if (mode === 'recent') {
-    return [...presets].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20);
+/**
+ * 从 presets 派生 mode strip：
+ * - 有 category 的，按本地排序去重生成 mode
+ * - 有 category=null/'' 的 preset 时，追加「未分類」pseudo-mode
+ * - 末尾固定一个「拍照」mode
+ *
+ * 0 类别 + 0 null-category 时只剩 [拍照]
+ */
+function buildModes(presets: UserMealPreset[]): ModeItem[] {
+  const cats = new Set<string>();
+  let hasUncategorized = false;
+  for (const p of presets) {
+    const c = (p.category ?? '').trim();
+    if (c) cats.add(c);
+    else hasUncategorized = true;
   }
-  if (mode === 'menu') {
-    return [...presets].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+  const catModes = [...cats]
+    .sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+    .map((c): ModeItem => ({ key: `cat:${c}`, label: c, sub: 'menu', isCamera: false, category: c }));
+  const result: ModeItem[] = [...catModes];
+  if (hasUncategorized) result.push(UNCATEGORIZED_MODE);
+  result.push(CAMERA_MODE);
+  return result;
+}
+
+/** 当前 mode 对应的 preset 列表（按名字排序） */
+function presetsForMode(presets: UserMealPreset[], mode: ModeItem): UserMealPreset[] {
+  if (mode.isCamera) return [];
+  return presets
+    .filter((p) => {
+      const c = (p.category ?? '').trim();
+      if (mode.category === null) return c === '';
+      return c === mode.category;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+}
+
+/** 已有类别去重排序，给 form combobox 当下拉候选项 */
+function uniqueCategoriesOf(presets: UserMealPreset[]): string[] {
+  const set = new Set<string>();
+  for (const p of presets) {
+    const c = (p.category ?? '').trim();
+    if (c) set.add(c);
   }
-  // camera: 不展示 preset 列表
-  return [];
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
 }
 
 type SheetView = 'list' | 'create' | 'edit';
@@ -45,6 +91,8 @@ export interface RecordMealSheetProps {
   /** 右下角常駐 knob 按鈕點擊回調（打開 sheet） */
   onOpen: () => void;
   customPresets: UserMealPreset[];
+  /** 拍照 mode 下方「近期拍照」橫列數據源；前 RECENT_PHOTO_MAX 筆會被展示 */
+  recentPhotoMeals: RecentPhotoMeal[];
   recordingId: string | null;
   /** 點長按完成觸發，記錄一筆 meal。返回 boolean 表示是否成功 */
   onPickCustomPreset: (preset: UserMealPreset) => Promise<boolean> | boolean | void;
@@ -68,6 +116,7 @@ export function RecordMealSheet({
   onClose,
   onOpen,
   customPresets,
+  recentPhotoMeals,
   recordingId,
   onPickCustomPreset,
   presetBusy,
@@ -102,16 +151,94 @@ export function RecordMealSheet({
     }
   }
 
-  const modeWheel = useHWheelPicker(MODES.length, MODE_W, { cyclic: true, maxStep: 1 });
-  const currentMode = MODES[modeWheel.idx]!.key;
+  // —— 动态 mode strip：从 customPresets 派生类别 + 末尾固定「拍照」 ——
+  const modes = useMemo(() => buildModes(customPresets), [customPresets]);
+  const existingCategories = useMemo(() => uniqueCategoriesOf(customPresets), [customPresets]);
+  const modeWheel = useHWheelPicker(modes.length, MODE_W, { cyclic: true, maxStep: 1 });
+  const safeModeIdx = Math.min(Math.max(0, modeWheel.idx), Math.max(0, modes.length - 1));
+  const currentMode = modes[safeModeIdx] ?? CAMERA_MODE;
 
   const [tickPulse, setTickPulse] = useState(0);
-  const presetList = useMemo(() => presetListForMode(customPresets, currentMode), [customPresets, currentMode]);
+  const presetList = useMemo(
+    () => presetsForMode(customPresets, currentMode),
+    [customPresets, currentMode],
+  );
   const presetWheel = useHWheelPicker(presetList.length, CARD_W, {
     maxStep: 1,
     onTick: () => setTickPulse((t) => t + 1),
   });
   const currentPreset = presetList[presetWheel.idx];
+
+  // —— 拍照 mode 下方「近期拍照」橫列：長按 → 詢問是否新增此餐為 preset ——
+  const recentPhotoList = useMemo(
+    () => recentPhotoMeals.slice(0, RECENT_PHOTO_MAX),
+    [recentPhotoMeals],
+  );
+  const [convertPhoto, setConvertPhoto] = useState<RecentPhotoMeal | null>(null);
+  /** 长按 create 表单的 prefill；photo→preset 时带名字+营养素 */
+  const [createPrefill, setCreatePrefill] = useState<MealPresetFormPrefill | undefined>(undefined);
+
+  // 近期拍照卡片长按状态
+  const recentPressTimerRef = useRef<number | null>(null);
+  const recentPressStartXRef = useRef<number | null>(null);
+  const recentPressStartYRef = useRef<number | null>(null);
+  const recentPressMealRef = useRef<RecentPhotoMeal | null>(null);
+  const [recentPressingId, setRecentPressingId] = useState<string | null>(null);
+
+  function startRecentLongPress(meal: RecentPhotoMeal, e: React.PointerEvent) {
+    if (recentPressTimerRef.current) window.clearTimeout(recentPressTimerRef.current);
+    recentPressMealRef.current = meal;
+    recentPressStartXRef.current = e.clientX;
+    recentPressStartYRef.current = e.clientY;
+    setRecentPressingId(meal.meal_id);
+    recentPressTimerRef.current = window.setTimeout(() => {
+      recentPressTimerRef.current = null;
+      const m = recentPressMealRef.current;
+      setRecentPressingId(null);
+      recentPressMealRef.current = null;
+      if (!m) return;
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate([6, 30, 18]); } catch {}
+      }
+      setConvertPhoto(m);
+    }, LONG_PRESS_MS);
+  }
+  function cancelRecentLongPress() {
+    if (recentPressTimerRef.current) {
+      window.clearTimeout(recentPressTimerRef.current);
+      recentPressTimerRef.current = null;
+    }
+    recentPressMealRef.current = null;
+    recentPressStartXRef.current = null;
+    recentPressStartYRef.current = null;
+    setRecentPressingId(null);
+  }
+  function onRecentPointerMove(e: React.PointerEvent) {
+    if (recentPressStartXRef.current == null || recentPressStartYRef.current == null) return;
+    const dx = Math.abs(e.clientX - recentPressStartXRef.current);
+    const dy = Math.abs(e.clientY - recentPressStartYRef.current);
+    if (dx > PRESET_AXIS_LOCK || dy > PRESET_AXIS_LOCK) {
+      cancelRecentLongPress();
+    }
+  }
+
+  function confirmConvertPhoto() {
+    const m = convertPhoto;
+    if (!m) return;
+    setCreatePrefill({
+      name: m.dish_name,
+      kcal: m.kcal,
+      protein_g: m.protein_g,
+      carb_g: m.carb_g,
+      fat_g: m.fat_g,
+      fiber_g: m.fiber_g,
+      // 保留 provenance：preset 来自这条 photo_ai meal
+      source_meal_id: m.meal_id,
+    });
+    setConvertPhoto(null);
+    onClearDuplicatePresetName();
+    setView('create');
+  }
 
   // —— preset 手势：水平 1-step wheel / 垂直 CRUD / 长按 record ——
   const gestureAxis = useRef<'idle' | 'horizontal' | 'vertical'>('idle');
@@ -122,7 +249,7 @@ export function RecordMealSheet({
   const longPressTimerRef = useRef<number | null>(null);
 
   function startLongPress() {
-    if (currentMode === 'camera' || !currentPreset || recordingId != null) return;
+    if (currentMode.isCamera || !currentPreset || recordingId != null) return;
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
     setPressing(true);
     longPressTimerRef.current = window.setTimeout(async () => {
@@ -177,7 +304,7 @@ export function RecordMealSheet({
   function onPresetPointerUp(e: React.PointerEvent) {
     cancelLongPress();
     const dy = startYRef.current != null ? e.clientY - startYRef.current : 0;
-    if (gestureAxis.current === 'vertical' && currentPreset && currentMode !== 'camera') {
+    if (gestureAxis.current === 'vertical' && currentPreset && !currentMode.isCamera) {
       if (dy < -VERTICAL_TRIGGER) {
         if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
         setDelOpen(true);
@@ -292,12 +419,15 @@ export function RecordMealSheet({
     const t = window.setTimeout(() => {
       setView('list');
       setDragY(0);
+      setCreatePrefill(undefined);
+      setConvertPhoto(null);
     }, 320);
     return () => window.clearTimeout(t);
   }, [open]);
 
   useEffect(() => () => {
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    if (recentPressTimerRef.current) window.clearTimeout(recentPressTimerRef.current);
   }, []);
 
   // —— mode 手势：水平 wheel / 垂直向下 close drag ——
@@ -365,8 +495,9 @@ export function RecordMealSheet({
     : Math.round((presetWheel.idx * (maxDots - 1)) / Math.max(1, total - 1));
 
   // sheet 高度統一：list / create / edit 都用同高，避免切換閃；
-  // 上限按表單 6 字段精算 (header 54 + padding 28 + 6 行 368 ≈ 450)，多留 10px slack
-  const sheetHeight = 'calc(clamp(420px, 54dvh, 460px) + env(safe-area-inset-bottom))';
+  // 表单加了 category 字段（多 1 行 + 1 gap ≈ 78px），上限提到 520
+  // 计算：header 54 + form padding 28 + 7 行 (name/category/kcal/macros/fiber/buttons) ≈ 434 + 缓冲
+  const sheetHeight = 'calc(clamp(460px, 60dvh, 520px) + env(safe-area-inset-bottom))';
 
   return (
     <>
@@ -454,22 +585,25 @@ export function RecordMealSheet({
                   onPointerCancel={onModePointerCancel}
                   style={{ touchAction: 'none' }}
                 >
-                  {[-1, 0, 1].map((rel) => {
+                  {/* count=1 时只渲染 rel=0，避免 cyclic 三个 rel 都解到同一 idx 导致重复 */}
+                  {(modes.length <= 1 ? [0] : [-1, 0, 1]).map((rel) => {
                     const realIdx = modeWheel.getOffsetIdx(rel);
                     if (realIdx == null) return null;
-                    const m = MODES[realIdx];
+                    const m = modes[realIdx];
                     if (!m) return null;
                     const visualPos = rel * MODE_W + modeWheel.dragOffset;
                     const distC = Math.abs(visualPos) / MODE_W;
                     const opacity = Math.max(0.25, Math.min(1, 1 - distC * 0.5));
                     const isCenter = distC < 0.5;
                     return (
-                      <button key={m.key}
+                      // key 带 rel 后缀：count=2 时 rel=-1 / rel=+1 解到同一 realIdx，
+                      // 仅 m.key 会撞 React key
+                      <button key={`${m.key}-${rel}`}
                         type="button"
                         onClick={() => {
                           if (modeWheel.isAnimating) return;
                           if (Math.abs(modeWheel.dragOffsetRef.current) > 6) return;
-                          if (realIdx === modeWheel.idx) return;
+                          if (realIdx === safeModeIdx) return;
                           modeWheel.snapTo(realIdx, { animate: true });
                         }}
                         className={`rms-mode-cell ${isCenter ? 'rms-mode-cell-active' : ''}`}
@@ -491,7 +625,7 @@ export function RecordMealSheet({
 
               {/* preset cover-flow / camera */}
               <div className="flex-1 rms-cover-wrap min-h-0 relative">
-                {currentMode === 'camera' ? (
+                {currentMode.isCamera ? (
                   mealPreview ? (
                     <div className="absolute inset-0 px-5 pb-3 overflow-y-auto">
                       <MealPreviewCard
@@ -540,7 +674,52 @@ export function RecordMealSheet({
                           </>
                         )}
                       </button>
-                      <p className="rms-cam-hint" aria-hidden>AI · KCAL / MACROS</p>
+
+                      {recentPhotoList.length === 0 && (
+                        <p className="rms-cam-hint" aria-hidden>AI · KCAL / MACROS</p>
+                      )}
+                      {/* 下方：近期拍照橫列；長按卡片 → 詢問是否新增為 preset */}
+                      {recentPhotoList.length > 0 && (
+                        <div className="rms-recent-section" onContextMenu={(e) => e.preventDefault()}>
+                          <p className="rms-recent-label" aria-hidden>近期拍照 · 長按新增為菜單</p>
+                          <div className="rms-recent-row" style={{ touchAction: 'pan-x' }}>
+                            {recentPhotoList.map((meal) => {
+                              const pressing = recentPressingId === meal.meal_id;
+                              return (
+                                <button
+                                  key={meal.meal_id}
+                                  type="button"
+                                  className={`rms-recent-card ${pressing ? 'rms-recent-card-pressing' : ''}`}
+                                  onPointerDown={(e) => startRecentLongPress(meal, e)}
+                                  onPointerMove={onRecentPointerMove}
+                                  onPointerUp={cancelRecentLongPress}
+                                  onPointerCancel={cancelRecentLongPress}
+                                  onPointerLeave={cancelRecentLongPress}
+                                >
+                                  {pressing && (
+                                    <svg className="rms-recent-progress" viewBox="0 0 100 70" preserveAspectRatio="none" aria-hidden>
+                                      <rect
+                                        className="rms-recent-progress-rect"
+                                        x="1" y="1" width="98" height="68"
+                                        rx="11" ry="11"
+                                        fill="none"
+                                        stroke="var(--color-accent)"
+                                        strokeWidth="2"
+                                        vectorEffect="non-scaling-stroke"
+                                        pathLength="1"
+                                      />
+                                    </svg>
+                                  )}
+                                  <p className="rms-recent-name">{meal.dish_name}</p>
+                                  <p className="rms-recent-kcal tabular">
+                                    {Math.round(meal.kcal)}<span className="rms-recent-kcal-unit">kcal</span>
+                                  </p>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 ) : presetList.length === 0 ? (
@@ -619,7 +798,7 @@ export function RecordMealSheet({
               </div>
 
               {/* page dots */}
-              {currentMode !== 'camera' && presetList.length > 0 && (
+              {!currentMode.isCamera && presetList.length > 0 && (
                 <div className="flex-shrink-0 rms-pager-wrap"
                   onPointerDown={onDotsPointerDown}
                   onPointerMove={onDotsPointerMove}
@@ -639,8 +818,8 @@ export function RecordMealSheet({
               <p className="flex-shrink-0 rms-action-hint">
                 {recordingId
                   ? <span className="text-accent">recording…</span>
-                  : currentMode === 'camera'
-                  ? '點 ＋ 新增 · 下滑關閉'
+                  : currentMode.isCamera
+                  ? '拍照 / 上傳 · 下滑關閉'
                   : currentPreset
                   ? <>長按卡片<span className="text-accent">記錄</span>　·　↑刪除　·　↓編輯</>
                   : '滑動選 preset · 點 ＋ 新增'}
@@ -654,11 +833,20 @@ export function RecordMealSheet({
                 busy={presetBusy}
                 duplicateError={duplicatePresetName}
                 onClearDuplicate={onClearDuplicatePresetName}
+                prefill={createPrefill}
+                existingCategories={existingCategories}
                 onSubmit={async (input) => {
                   const ok = await onCreatePreset(input);
-                  if (ok) setView('list');
+                  if (ok) {
+                    setCreatePrefill(undefined);
+                    setView('list');
+                  }
                 }}
-                onCancel={() => { onClearDuplicatePresetName(); setView('list'); }}
+                onCancel={() => {
+                  onClearDuplicatePresetName();
+                  setCreatePrefill(undefined);
+                  setView('list');
+                }}
               />
             </div>
           )}
@@ -669,8 +857,10 @@ export function RecordMealSheet({
                 busy={presetBusy}
                 duplicateError={duplicatePresetName}
                 onClearDuplicate={onClearDuplicatePresetName}
+                existingCategories={existingCategories}
                 prefill={{
                   name: currentPreset.name,
+                  category: currentPreset.category,
                   kcal: currentPreset.kcal,
                   protein_g: currentPreset.protein_g,
                   carb_g: currentPreset.carb_g,
@@ -706,6 +896,21 @@ export function RecordMealSheet({
             setDeleteBusy(false);
           }
         }}
+      />
+
+      {/* 近期拍照 → 新增 preset 确认 */}
+      <Dialog
+        open={convertPhoto != null}
+        title="新增此餐點到菜單？"
+        body={convertPhoto ? (
+          <span>
+            將「<span className="text-text font-medium">{convertPhoto.dish_name}</span>」
+            連同熱量 / 營養素帶入新增表單，你可以再選類別並調整。
+          </span>
+        ) : null}
+        confirmText="繼續"
+        onCancel={() => setConvertPhoto(null)}
+        onConfirm={confirmConvertPhoto}
       />
 
       <style>{styles}</style>
@@ -1090,5 +1295,100 @@ const styles = `
   letter-spacing: 0.24em;
   color: var(--color-text-3);
   opacity: 0.55;
+}
+
+/* ========== camera 下方近期拍照橫列 ========== */
+.rms-recent-section {
+  margin-top: 14px;
+  width: 100%;
+  display: flex; flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.rms-recent-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--color-text-3);
+  opacity: 0.55;
+  margin: 0;
+}
+.rms-recent-row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 16px;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  justify-content: flex-start;
+  align-items: stretch;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.rms-recent-row::-webkit-scrollbar { display: none; }
+.rms-recent-card {
+  position: relative;
+  flex-shrink: 0;
+  width: 100px; height: 70px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(28,28,36,0.7) 0%, rgba(18,18,24,0.7) 100%);
+  border: 1px solid rgba(255,255,255,0.08);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 3px;
+  padding: 6px 8px;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: border-color 0.2s ease, transform 0.15s ease;
+  overflow: hidden;
+  font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
+}
+.rms-recent-card:active {
+  transform: scale(0.96);
+}
+.rms-recent-card-pressing {
+  border-color: rgba(200,255,0,0.7);
+  background: linear-gradient(180deg, rgba(36,40,24,0.85) 0%, rgba(20,22,18,0.95) 100%);
+}
+.rms-recent-name {
+  font-size: 11px;
+  color: var(--color-text);
+  font-weight: 500;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  margin: 0;
+}
+.rms-recent-kcal {
+  font-size: 13px;
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+  margin: 0;
+}
+.rms-recent-kcal-unit {
+  font-size: 8.5px;
+  color: var(--color-text-3);
+  margin-left: 2px;
+}
+.rms-recent-progress {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 2;
+}
+.rms-recent-progress-rect {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: rms-progress-fill ${LONG_PRESS_MS}ms linear forwards;
+  filter: drop-shadow(0 0 4px rgba(200,255,0,0.5));
 }
 `;

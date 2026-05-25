@@ -13,6 +13,8 @@ export const dynamic = 'force-dynamic';
 
 const Body = z.object({
   name: z.string().trim().min(1).max(50),
+  // category：空字符串 / 仅空白都规范化为 null（后端唯一允许的 falsy）
+  category: z.string().trim().max(30).nullish().transform((v) => (v && v.length > 0 ? v : null)),
   kcal: z.number().min(0).max(5000),
   protein_g: z.number().min(0).max(500).default(0),
   carb_g: z.number().min(0).max(1000).default(0),
@@ -21,7 +23,7 @@ const Body = z.object({
   source_meal_id: z.string().uuid().optional(),
 }).strict();
 
-const PRESET_SELECT = 'id, name, kcal, protein_g, carb_g, fat_g, fiber_g, created_at';
+const PRESET_SELECT = 'id, name, category, kcal, protein_g, carb_g, fat_g, fiber_g, created_at';
 
 export async function POST(req: Request) {
   let userIdForLog: string | undefined;
@@ -53,6 +55,7 @@ export async function POST(req: Request) {
       .insert({
         user_id: userId,
         name: body.name,
+        category: body.category,
         kcal: body.kcal,
         protein_g: body.protein_g,
         carb_g: body.carb_g,

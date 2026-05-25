@@ -21,6 +21,7 @@ export type Nutrients = {
 export type UserMealPreset = {
   id: string;
   name: string;
+  category: string | null;
   kcal: number;
   protein_g: number;
   carb_g: number;
@@ -76,16 +77,21 @@ const TodayMealSchema = z.object({
   satiety: z.number().nullable(),
 }).strict();
 
+// UserMealPreset 是 UI DTO，未来会继续加字段（icon / color / sort_order...）。
+// 用 passthrough 而非 strict：允许 RPC 返回额外字段时旧前端不炸（forward-compat）。
+// meals/targets 这类核心契约仍保 strict，错字段早炸更有价值。
 const UserMealPresetSchema = z.object({
   id: z.string(),
   name: z.string(),
+  // category 是后加的字段，旧 RPC 还没返回时按 null 处理
+  category: z.string().nullable().optional().transform((v) => v ?? null),
   kcal: z.number(),
   protein_g: z.number(),
   carb_g: z.number(),
   fat_g: z.number(),
   fiber_g: z.number(),
   created_at: z.string(),
-}).strict();
+}).passthrough();
 
 const RecentPhotoMealSchema = z.object({
   meal_id: z.string(),

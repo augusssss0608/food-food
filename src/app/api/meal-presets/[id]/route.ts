@@ -16,6 +16,12 @@ export const dynamic = 'force-dynamic';
 
 const PatchBody = z.object({
   name: z.string().trim().min(1).max(50).optional(),
+  // 显式传 null / '' 都规范化成 null（清空 category）；未传则保持不变
+  category: z.string().trim().max(30).nullable().optional().transform((v) => {
+    if (v === undefined) return undefined;
+    if (v === null) return null;
+    return v.length > 0 ? v : null;
+  }),
   kcal: z.number().min(0).max(5000).optional(),
   protein_g: z.number().min(0).max(500).optional(),
   carb_g: z.number().min(0).max(1000).optional(),
@@ -23,7 +29,7 @@ const PatchBody = z.object({
   fiber_g: z.number().min(0).max(200).optional(),
 }).strict();
 
-const PRESET_SELECT = 'id, name, kcal, protein_g, carb_g, fat_g, fiber_g, created_at';
+const PRESET_SELECT = 'id, name, category, kcal, protein_g, carb_g, fat_g, fiber_g, created_at';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {

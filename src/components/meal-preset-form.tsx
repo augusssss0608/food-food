@@ -4,9 +4,11 @@ import { Input } from '@/components/ui/input';
 import { NumberInput, isEmptyNum } from '@/components/ui/number-input';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { CategoryCombobox } from '@/components/category-combobox';
 
 export type MealPresetFormInput = {
   name: string;
+  category: string | null;
   kcal: number;
   protein_g: number;
   carb_g: number;
@@ -29,6 +31,7 @@ export type MealPresetFormPrefill = Partial<MealPresetFormInput> & { source_meal
  */
 export function MealPresetForm({
   prefill,
+  existingCategories,
   onCancel,
   onSubmit,
   busy,
@@ -36,6 +39,8 @@ export function MealPresetForm({
   onClearDuplicate,
 }: {
   prefill?: MealPresetFormPrefill;
+  /** 已有的类别（去重 + 排序后），下拉候选项 */
+  existingCategories: string[];
   onCancel: () => void;
   onSubmit: (input: MealPresetFormInput) => Promise<void> | void;
   busy: boolean;
@@ -43,6 +48,7 @@ export function MealPresetForm({
   onClearDuplicate?: () => void;
 }) {
   const [name, setName] = useState<string>(prefill?.name ?? '');
+  const [category, setCategory] = useState<string>(prefill?.category ?? '');
   const [kcal, setKcal] = useState<number | ''>(prefill?.kcal ?? '');
   const [protein, setProtein] = useState<number | ''>(prefill?.protein_g ?? '');
   const [carb, setCarb] = useState<number | ''>(prefill?.carb_g ?? '');
@@ -52,6 +58,7 @@ export function MealPresetForm({
   // prefill 在 mount 后变化（不同 recent meal 点击）重置表单
   useEffect(() => {
     setName(prefill?.name ?? '');
+    setCategory(prefill?.category ?? '');
     setKcal(prefill?.kcal ?? '');
     setProtein(prefill?.protein_g ?? '');
     setCarb(prefill?.carb_g ?? '');
@@ -65,14 +72,16 @@ export function MealPresetForm({
   }
 
   const trimmedName = name.trim();
+  const trimmedCategory = category.trim();
   const nameInvalid = trimmedName.length === 0 || trimmedName.length > 50;
+  const categoryInvalid = trimmedCategory.length > 30;
   const kcalInvalid = isEmptyNum(kcal) || (typeof kcal === 'number' && (kcal < 0 || kcal > 5000));
   const proteinInvalid = typeof protein === 'number' && (protein < 0 || protein > 500);
   const carbInvalid = typeof carb === 'number' && (carb < 0 || carb > 1000);
   const fatInvalid = typeof fat === 'number' && (fat < 0 || fat > 500);
   const fiberInvalid = typeof fiber === 'number' && (fiber < 0 || fiber > 200);
   const canSubmit =
-    !nameInvalid && !kcalInvalid &&
+    !nameInvalid && !categoryInvalid && !kcalInvalid &&
     !proteinInvalid && !carbInvalid && !fatInvalid && !fiberInvalid &&
     !busy;
 
@@ -80,6 +89,7 @@ export function MealPresetForm({
     if (!canSubmit) return;
     await onSubmit({
       name: trimmedName,
+      category: trimmedCategory.length > 0 ? trimmedCategory : null,
       kcal: typeof kcal === 'number' ? kcal : 0,
       protein_g: typeof protein === 'number' ? protein : 0,
       carb_g: typeof carb === 'number' ? carb : 0,
@@ -90,7 +100,7 @@ export function MealPresetForm({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       <Input
         label="菜名 *"
         value={name}
@@ -99,6 +109,12 @@ export function MealPresetForm({
         maxLength={50}
         invalid={duplicateError || (name.length > 0 && nameInvalid)}
         hint={duplicateError ? '已存在同名菜單，請改名' : trimmedName.length >= 40 ? `${trimmedName.length}/50` : undefined}
+      />
+      <CategoryCombobox
+        value={category}
+        onChange={setCategory}
+        options={existingCategories}
+        disabled={busy}
       />
       <NumberInput
         label="熱量 *"
