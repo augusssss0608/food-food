@@ -10,7 +10,7 @@ import type { HomeSnapshot } from '@/lib/home-snapshot';
 const MODE_W = 116;
 const CARD_W = 200;
 const CARD_INNER_W = CARD_W - 16;
-const CARD_INNER_H = 96;
+const CARD_INNER_H = 118;
 const PRESET_AXIS_LOCK = 8;
 const VERTICAL_TRIGGER = 60;
 const CLOSE_DRAG_TRIGGER = 90;
@@ -143,7 +143,11 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     if (dotsStartX.current == null) return;
     const dx = e.clientX - dotsStartX.current;
     const delta = Math.round(dx / DOT_PIXEL);
-    const newIdx = Math.max(0, Math.min(presetList.length - 1, dotsStartIdx.current + delta));
+    // cyclic：超出列表頭尾繞回去
+    const len = presetList.length;
+    if (len === 0) return;
+    const raw = dotsStartIdx.current + delta;
+    const newIdx = ((raw % len) + len) % len;
     if (newIdx !== dotsLastIdx.current) {
       presetWheel.snapTo(newIdx, { animate: false, haptic: false });
       dotsLastIdx.current = newIdx;
@@ -454,8 +458,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                           const scale = Math.max(0.5, 1 - distC * 0.09);
                           const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
                           const isCenter = distC < 0.5;
-                          // 卡片不再上下位移（避免溢出 cover-wrap）；垂直手勢只控制上下 hint 顯示
-                          const yOffset = 0;
+                          // 卡片小幅跟手：0.3x + clamp ±14，配合 cover-track 150 留出的 16px 上下 buffer，不溢出
+                          const yOffset = isCenter ? Math.max(-14, Math.min(14, verticalDrag * 0.3)) : 0;
                           return (
                             <div key={`${p.id}-${rel}`}
                               className={`twh-card ${isCenter ? 'twh-card-active' : ''} ${isCenter && pressing ? 'twh-card-pressing' : ''}`}
@@ -473,7 +477,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                                     className="twh-progress-rect"
                                     x="1.5" y="1.5"
                                     width={CARD_INNER_W - 3} height={CARD_INNER_H - 3}
-                                    rx="13" ry="13"
+                                    rx="14.5" ry="14.5"
                                     fill="none"
                                     stroke="var(--color-accent)"
                                     strokeWidth="3"
@@ -521,7 +525,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                 )}
 
                 {/* 操作提示（替代 record button） */}
-                <div className="flex-shrink-0 px-5 pb-3 pt-1">
+                <div className="flex-shrink-0 px-5 pb-1 pt-0">
                   <p className="twh-action-hint">
                     {api.recordingId
                       ? <span className="text-accent">recording…</span>
@@ -776,7 +780,7 @@ const styles = `
 .twh-cover-track {
   position: relative;
   width: ${CARD_W}px;
-  height: 110px;
+  height: 150px;
   cursor: grab;
 }
 .twh-cover-track:active { cursor: grabbing; }
@@ -788,10 +792,10 @@ const styles = `
   margin-top: -${CARD_INNER_H / 2}px;
   background: linear-gradient(180deg, rgba(28,28,36,0.7) 0%, rgba(18,18,24,0.7) 100%);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 14px;
+  border-radius: 16px;
   display: flex; flex-direction: column;
   justify-content: center; align-items: center;
-  padding: 8px;
+  padding: 10px;
   font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
   will-change: transform, opacity;
   backdrop-filter: blur(6px);
@@ -800,7 +804,7 @@ const styles = `
   -webkit-touch-callout: none;
 }
 .twh-card-name {
-  font-size: 15px;
+  font-size: 16px;
   color: var(--color-text);
   font-weight: 600;
   text-align: center;
@@ -811,25 +815,25 @@ const styles = `
   width: 100%;
 }
 .twh-card-kcal {
-  font-size: 18px;
+  font-size: 20px;
   color: var(--color-text-2);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  margin-top: 4px;
+  margin-top: 5px;
 }
 .twh-card-macro {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  margin-top: 5px;
+  font-size: 9.5px;
+  margin-top: 6px;
   letter-spacing: 0.04em;
 }
 .twh-card-active {
   background: linear-gradient(180deg, rgba(36,40,24,0.85) 0%, rgba(20,22,18,0.95) 100%);
   border-color: rgba(200,255,0,0.55);
-  box-shadow: 0 12px 28px -12px rgba(0,0,0,0.7), 0 0 22px rgba(200,255,0,0.18), inset 0 1px 0 rgba(200,255,0,0.12);
+  box-shadow: 0 14px 32px -12px rgba(0,0,0,0.7), 0 0 28px rgba(200,255,0,0.18), inset 0 1px 0 rgba(200,255,0,0.12);
 }
-.twh-card-active .twh-card-name { color: var(--color-accent); font-size: 16px; }
-.twh-card-active .twh-card-kcal { color: var(--color-accent); font-size: 20px; }
+.twh-card-active .twh-card-name { color: var(--color-accent); font-size: 18px; }
+.twh-card-active .twh-card-kcal { color: var(--color-accent); font-size: 24px; }
 .twh-card-pressing {
   border-color: rgba(200,255,0,0.8);
   transform-origin: center;
@@ -838,7 +842,7 @@ const styles = `
 /* detent 视觉脉冲 */
 .twh-card-tick {
   position: absolute; inset: 0;
-  border-radius: 14px;
+  border-radius: 16px;
   pointer-events: none;
   animation: twh-tick-pulse 0.18s ease-out forwards;
 }
@@ -887,13 +891,13 @@ const styles = `
 .twh-pager-wrap {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center;
-  padding: 16px 40px;
-  margin: 6px 12px 0;
+  padding: 12px 40px;
+  margin: 4px 12px 0;
   user-select: none;
   cursor: grab;
   background: rgba(200,255,0,0.03);
   border: 1px solid rgba(200,255,0,0.1);
-  border-radius: 16px;
+  border-radius: 14px;
   transition: background 0.2s, border-color 0.2s, border-style 0s;
 }
 .twh-pager-wrap:active {
