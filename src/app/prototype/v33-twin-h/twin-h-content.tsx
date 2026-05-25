@@ -309,7 +309,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
         />
         <div className="absolute left-0 right-0 bottom-0 twh-sheet"
           style={{
-            height: '46vh',
+            height: 'clamp(360px, 46dvh, 440px)',
             paddingBottom: 'env(safe-area-inset-bottom)',
             transform: open ? `translateY(${dragY}px)` : 'translateY(100%)',
             transition: dragging ? 'none' : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
@@ -400,8 +400,10 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                       );
                     })}
                   </div>
-                  {/* 底部跟隨的 lime underline */}
-                  <span className="twh-mode-underline" aria-hidden />
+                  {/* 底部跟隨的 lime underline（拖動時微跟手） */}
+                  <span className="twh-mode-underline" aria-hidden
+                    style={{ transform: `translateX(calc(-50% + ${modeWheel.dragOffset * 0.3}px))` }}
+                  />
                 </div>
 
                 {/* preset cover-flow */}
@@ -455,7 +457,14 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                           const scale = Math.max(0.5, 1 - distC * 0.09);
                           const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
                           const isCenter = distC < 0.5;
-                          const yOffset = isCenter ? verticalDrag : 0;
+                          // clamp 卡片垂直位移：超過邊界後阻尼，避免完全壓到 mode / dots
+                          const rawY = isCenter ? verticalDrag : 0;
+                          const yMax = 130;
+                          const yOffset = Math.abs(rawY) <= yMax
+                            ? rawY
+                            : (rawY > 0
+                              ? yMax + (rawY - yMax) * 0.3
+                              : -yMax + (rawY + yMax) * 0.3);
                           return (
                             <div key={`${p.id}-${rel}`}
                               className={`twh-card ${isCenter ? 'twh-card-active' : ''} ${isCenter && pressing ? 'twh-card-pressing' : ''}`}
@@ -746,13 +755,13 @@ const styles = `
 .twh-mode-underline {
   position: absolute;
   left: 50%; bottom: 4px;
-  transform: translateX(-50%);
   width: 28px; height: 2px;
   background: var(--color-accent);
   border-radius: 999px;
   box-shadow: 0 0 8px rgba(200,255,0,0.65);
   pointer-events: none;
   z-index: 3;
+  will-change: transform;
 }
 
 /* ========== preset cover flow ========== */
