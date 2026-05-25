@@ -15,7 +15,7 @@ const PRESET_AXIS_LOCK = 8;
 const VERTICAL_TRIGGER = 60;
 const CLOSE_DRAG_TRIGGER = 90;
 const DOT_PIXEL = 22;
-const LONG_PRESS_MS = 1500;
+const LONG_PRESS_MS = 1000;
 
 type SheetView = 'list' | 'create' | 'edit';
 
@@ -309,7 +309,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
         />
         <div className="absolute left-0 right-0 bottom-0 twh-sheet"
           style={{
-            height: '52vh',
+            height: '46vh',
             paddingBottom: 'env(safe-area-inset-bottom)',
             transform: open ? `translateY(${dragY}px)` : 'translateY(100%)',
             transition: dragging ? 'none' : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
@@ -359,9 +359,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
 
             {view === 'list' && (
               <>
-                {/* mode strip */}
+                {/* mode strip — minimal segmented：字色 + 底部 lime underline 跟隨 */}
                 <div className="flex-shrink-0 twh-mode-strip">
-                  <div className="twh-mode-highlight" aria-hidden />
                   <div className="twh-mode-mask-l" aria-hidden />
                   <div className="twh-mode-mask-r" aria-hidden />
                   <div className="twh-mode-track"
@@ -378,8 +377,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                       if (!m) return null;
                       const visualPos = rel * MODE_W + modeWheel.dragOffset;
                       const distC = Math.abs(visualPos) / MODE_W;
-                      const scale = Math.max(0.7, 1 - distC * 0.18);
-                      const opacity = Math.max(0.2, Math.min(1, 1 - distC * 0.55));
+                      const opacity = Math.max(0.25, Math.min(1, 1 - distC * 0.5));
                       const isCenter = distC < 0.5;
                       return (
                         <button key={m.key}
@@ -392,7 +390,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                           }}
                           className={`twh-mode-cell ${isCenter ? 'twh-mode-cell-active' : ''}`}
                           style={{
-                            transform: `translate(-50%, -50%) translateX(${visualPos}px) scale(${scale})`,
+                            transform: `translate(-50%, -50%) translateX(${visualPos}px)`,
                             opacity,
                           }}
                         >
@@ -402,6 +400,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                       );
                     })}
                   </div>
+                  {/* 底部跟隨的 lime underline */}
+                  <span className="twh-mode-underline" aria-hidden />
                 </div>
 
                 {/* preset cover-flow */}
@@ -455,7 +455,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                           const scale = Math.max(0.5, 1 - distC * 0.09);
                           const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
                           const isCenter = distC < 0.5;
-                          const yOffset = isCenter ? verticalDrag * 0.35 : 0;
+                          const yOffset = isCenter ? verticalDrag : 0;
                           return (
                             <div key={`${p.id}-${rel}`}
                               className={`twh-card ${isCenter ? 'twh-card-active' : ''} ${isCenter && pressing ? 'twh-card-pressing' : ''}`}
@@ -528,7 +528,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                       : currentMode === 'camera'
                       ? '點 ＋ 新增 · 下滑關閉'
                       : currentPreset
-                      ? <>長按卡片 <span className="text-accent">1.5s</span> 記錄　·　↑刪除　·　↓編輯</>
+                      ? <>長按卡片 <span className="text-accent">1s</span> 記錄　·　↑刪除　·　↓編輯</>
                       : '滑動選 preset · 點 ＋ 新增'}
                   </p>
                 </div>
@@ -687,36 +687,23 @@ const styles = `
 }
 .twh-icon-btn:active { transform: scale(0.9); border-color: var(--color-accent); background: rgba(200,255,0,0.1); }
 
-/* ========== mode strip ========== */
+/* ========== mode strip — minimal segmented ========== */
 .twh-mode-strip {
   position: relative;
-  height: 64px;
-  margin: 0 0 8px;
+  height: 56px;
+  margin: 0 0 4px;
   overflow: hidden;
   user-select: none;
 }
-.twh-mode-highlight {
-  position: absolute;
-  left: 50%; top: 50%;
-  transform: translate(-50%, -50%);
-  width: ${MODE_W - 10}px;
-  height: 50px;
-  border: 1px solid rgba(200,255,0,0.5);
-  border-radius: 14px;
-  background: rgba(200,255,0,0.05);
-  box-shadow: inset 0 0 0 1px rgba(200,255,0,0.06), 0 0 16px rgba(200,255,0,0.15);
-  pointer-events: none;
-  z-index: 1;
-}
 .twh-mode-mask-l, .twh-mode-mask-r {
-  position: absolute; top: 0; bottom: 0; width: 60px;
+  position: absolute; top: 0; bottom: 0; width: 50px;
   pointer-events: none; z-index: 2;
 }
-.twh-mode-mask-l { left: 0; background: linear-gradient(90deg, #0a0a0d 0%, rgba(10,10,13,0.7) 50%, transparent 100%); }
-.twh-mode-mask-r { right: 0; background: linear-gradient(-90deg, #0a0a0d 0%, rgba(10,10,13,0.7) 50%, transparent 100%); }
+.twh-mode-mask-l { left: 0; background: linear-gradient(90deg, #0a0a0d 0%, transparent 100%); }
+.twh-mode-mask-r { right: 0; background: linear-gradient(-90deg, #0a0a0d 0%, transparent 100%); }
 .twh-mode-track {
   position: absolute;
-  left: 0; right: 0; top: 0; bottom: 0;
+  left: 0; right: 0; top: 0; bottom: 8px;
   cursor: grab;
 }
 .twh-mode-track:active { cursor: grabbing; }
@@ -726,35 +713,56 @@ const styles = `
   width: ${MODE_W - 14}px;
   background: transparent;
   border: none;
-  color: var(--color-text-2);
+  color: var(--color-text-3);
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  gap: 3px;
-  padding: 6px 4px;
+  gap: 4px;
+  padding: 4px;
   font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
   cursor: pointer;
   will-change: transform, opacity;
+  transition: color 0.22s;
 }
-.twh-mode-label { font-size: 19px; font-weight: 600; line-height: 1; }
+.twh-mode-label {
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
 .twh-mode-sub {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 8px;
-  letter-spacing: 0.2em;
+  font-size: 8.5px;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   opacity: 0.5;
   line-height: 1;
+  transition: opacity 0.22s, letter-spacing 0.22s;
 }
-.twh-mode-cell-active { color: var(--color-accent); }
-.twh-mode-cell-active .twh-mode-sub { opacity: 0.75; }
+.twh-mode-cell-active {
+  color: var(--color-accent);
+}
+.twh-mode-cell-active .twh-mode-label { font-weight: 600; }
+.twh-mode-cell-active .twh-mode-sub { opacity: 0.9; letter-spacing: 0.28em; }
+.twh-mode-underline {
+  position: absolute;
+  left: 50%; bottom: 4px;
+  transform: translateX(-50%);
+  width: 28px; height: 2px;
+  background: var(--color-accent);
+  border-radius: 999px;
+  box-shadow: 0 0 8px rgba(200,255,0,0.65);
+  pointer-events: none;
+  z-index: 3;
+}
 
 /* ========== preset cover flow ========== */
 .twh-cover-wrap {
   position: relative;
-  overflow: hidden;
+  overflow: visible; /* 允許卡片垂直滑出此區域 */
   display: flex; align-items: center; justify-content: center;
 }
 .twh-cover-mask-l, .twh-cover-mask-r {
-  position: absolute; top: 0; bottom: 0; width: 70px;
+  position: absolute; top: -30%; bottom: -30%; width: 70px;
   pointer-events: none; z-index: 3;
 }
 .twh-cover-mask-l { left: 0; background: linear-gradient(90deg, #0a0a0d 0%, rgba(10,10,13,0.6) 60%, transparent 100%); }
@@ -866,21 +874,27 @@ const styles = `
 .twh-swipe-hint-bottom { bottom: 6px; flex-direction: column-reverse; }
 .twh-swipe-hint-bottom .twh-swipe-hint-arrow { margin-top: 2px; margin-bottom: 0; }
 
-/* ========== page dots（可滑动） ========== */
+/* ========== page dots（可滑动，整條塗 lime 提示 hit area） ========== */
 .twh-pager-wrap {
   display: flex; flex-direction: column; align-items: center;
-  gap: 4px;
-  padding: 6px 0;
+  justify-content: center;
+  padding: 10px 24px;
+  margin: 4px 18px 0;
   user-select: none;
   cursor: grab;
+  background: rgba(200,255,0,0.05);
+  border: 1px dashed rgba(200,255,0,0.28);
+  border-radius: 14px;
+  transition: background 0.2s, border-color 0.2s;
 }
-.twh-pager-wrap:active { cursor: grabbing; }
+.twh-pager-wrap:active {
+  cursor: grabbing;
+  background: rgba(200,255,0,0.1);
+  border-color: rgba(200,255,0,0.5);
+}
 .twh-pager {
-  display: flex; gap: 7px; align-items: center;
-  padding: 4px 14px;
-  background: rgba(255,255,255,0.025);
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.05);
+  display: flex; gap: 8px; align-items: center;
+  padding: 2px 0;
 }
 .twh-pdot {
   width: 5px; height: 5px;
