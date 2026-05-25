@@ -70,6 +70,7 @@ main {
   height: 100dvh;
   overflow-y: auto;
   overscroll-behavior-x: none;
+  overscroll-behavior-y: contain;
 }
 
 /* Decorative grain texture overlay — adds atmospheric depth.

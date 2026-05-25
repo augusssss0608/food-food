@@ -32,7 +32,8 @@ export function PageShell({
       ].join(' ')}
       style={{
         paddingTop: 'calc(env(safe-area-inset-top) + 1rem)',
-        paddingBottom: 'max(2rem, env(safe-area-inset-bottom))',
+        // 只留 home indicator safe-area，去掉 2rem fallback 黑邊
+        paddingBottom: 'env(safe-area-inset-bottom)',
       }}
     >
       <div className="w-full grow">{children}</div>
