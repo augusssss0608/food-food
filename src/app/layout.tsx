@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Fraunces, JetBrains_Mono, Geist } from 'next/font/google';
 import { NoSwipeBackGesture } from '@/components/no-swipe-back-gesture';
 import { ToastProvider } from '@/components/ui/toast';
+import { ViewportDebug } from '@/components/viewport-debug';
 import './globals.css';
 
 const fraunces = Fraunces({
@@ -96,6 +97,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="antialiased" style={{ backgroundColor: '#0a0a0c' }}>
         <NoSwipeBackGesture />
         <ToastProvider>{children}</ToastProvider>
+        <ViewportDebug />
       </body>
     </html>
   );

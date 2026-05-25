@@ -45,6 +45,11 @@
   - 長頁面 content > main height → main 滾動，iOS native rubber-band 自動有
   x 軸 overscroll 仍然禁掉，繼續防 iOS 左邊緣 swipe-back。
 */
+:root {
+  --sab: env(safe-area-inset-bottom);
+  --sat: env(safe-area-inset-top);
+}
+
 html {
   background: var(--color-ink);
   color-scheme: dark;
