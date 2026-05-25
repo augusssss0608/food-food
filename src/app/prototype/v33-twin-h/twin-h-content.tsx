@@ -56,7 +56,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
       }
       if (currentPreset) {
         const ok = await api.recordCustomPreset(currentPreset);
-        if (ok) triggerClose();
+        if (ok) setOpen(false);
       }
     }, LONG_PRESS_MS);
   }
@@ -160,91 +160,58 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     dotsStartX.current = null;
   }
 
-  // —— sheet close drag + 关闭动画（double RAF + forced reflow + transitionend） ——
-  const sheetRef = useRef<HTMLDivElement | null>(null);
+  // —— sheet 下滑关闭（仿主页 add-meal-sheet：sheet 始终 mount，靠 transform + CSS transition） ——
   const closeStartY = useRef<number | null>(null);
   const closeDragMoved = useRef(false);
-  const [closeDragY, setCloseDragY] = useState(0);
-  const [closing, setClosing] = useState(false);
-  const closingTimerRef = useRef<number | null>(null);
-  const closeRafRef = useRef<number | null>(null);
-
-  function triggerClose() {
-    if (closing) return;
-    setClosing(true);
-    // 第一阶段：closing render commit；transition 此时变 0.32s
-    // 第二阶段：double RAF + forced reflow 保证浏览器完成 style recalc，
-    //          再改 transform 触发 CSS transition 动画
-    if (closeRafRef.current != null) cancelAnimationFrame(closeRafRef.current);
-    closeRafRef.current = requestAnimationFrame(() => {
-      closeRafRef.current = requestAnimationFrame(() => {
-        closeRafRef.current = null;
-        if (sheetRef.current) {
-          // forced reflow：让 transition prop 真的 commit 到 computed style
-          void sheetRef.current.offsetHeight;
-        }
-        setCloseDragY(typeof window !== 'undefined' ? window.innerHeight : 800);
-      });
-    });
-    if (closingTimerRef.current) window.clearTimeout(closingTimerRef.current);
-    closingTimerRef.current = window.setTimeout(() => {
-      finalizeClose();
-    }, 500);
-  }
-  function finalizeClose() {
-    if (closingTimerRef.current) {
-      window.clearTimeout(closingTimerRef.current);
-      closingTimerRef.current = null;
-    }
-    if (closeRafRef.current != null) {
-      cancelAnimationFrame(closeRafRef.current);
-      closeRafRef.current = null;
-    }
-    setOpen(false);
-    setClosing(false);
-    setCloseDragY(0);
-    setView('list');
-  }
-  function onSheetTransitionEnd(e: React.TransitionEvent) {
-    if (closing && e.propertyName === 'transform' && e.currentTarget === e.target) {
-      finalizeClose();
-    }
-  }
+  const [dragY, setDragY] = useState(0);
+  const [dragging, setDragging] = useState(false);
 
   function startCloseDrag(clientY: number) {
-    if (closing) return;
+    if (!open) return;
     closeStartY.current = clientY;
     closeDragMoved.current = false;
+    setDragging(true);
   }
   function updateCloseDrag(clientY: number) {
     if (closeStartY.current == null) return;
     const dy = clientY - closeStartY.current;
     if (Math.abs(dy) > 4) closeDragMoved.current = true;
-    setCloseDragY(dy > 0 ? dy : 0);
+    setDragY(Math.max(0, dy));
   }
   function endCloseDrag(clientY: number) {
     if (closeStartY.current == null) return;
     const dy = clientY - closeStartY.current;
     closeStartY.current = null;
+    setDragging(false);
     if (dy > CLOSE_DRAG_TRIGGER) {
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
-      triggerClose();
+      setOpen(false); // transform → translateY(100%) 通过 CSS transition 平滑滑出
     } else {
-      setCloseDragY(0);
+      setDragY(0);
     }
   }
   function cancelCloseDrag() {
     closeStartY.current = null;
     closeDragMoved.current = false;
-    if (!closing) setCloseDragY(0);
+    setDragging(false);
+    setDragY(0);
   }
   function onCloseDragDown(e: React.PointerEvent) { startCloseDrag(e.clientY); }
   function onCloseDragMove(e: React.PointerEvent) { updateCloseDrag(e.clientY); }
   function onCloseDragUp(e: React.PointerEvent) { endCloseDrag(e.clientY); }
 
+  // open=false 后等关闭动画完成（320ms）再重置 view + dragY，避免下次打开瞬间从 dy 回弹
+  useEffect(() => {
+    if (!open) {
+      const t = window.setTimeout(() => {
+        setView('list');
+        setDragY(0);
+      }, 320);
+      return () => window.clearTimeout(t);
+    }
+  }, [open]);
+
   useEffect(() => () => {
-    if (closingTimerRef.current) window.clearTimeout(closingTimerRef.current);
-    if (closeRafRef.current != null) cancelAnimationFrame(closeRafRef.current);
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
   }, []);
 
@@ -330,27 +297,24 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
         </span>
       </button>
 
-      {open && (
-        <div className="fixed inset-0 z-[80]">
-          <div className="absolute inset-0 bg-ink/85 backdrop-blur-md"
-            onClick={() => { if (!closing) triggerClose(); }}
-            style={{
-              animation: closing ? undefined : 'ff-fade-in 0.2s ease-out both',
-              opacity: closing ? 0 : 1,
-              transition: closing ? 'opacity 0.32s ease-in' : undefined,
-            }}
-          />
-          <div ref={sheetRef} className="absolute left-0 right-0 bottom-0 twh-sheet"
-            style={{
-              height: '52vh',
-              animation: closing ? undefined : 'sheet-up 0.32s var(--ease-out-soft) both',
-              paddingBottom: 'env(safe-area-inset-bottom)',
-              transform: `translateY(${closeDragY}px)`,
-              transition: (closeStartY.current == null || closing) ? 'transform 0.32s var(--ease-out-soft)' : 'none',
-              pointerEvents: closing ? 'none' : undefined,
-            }}
-            onTransitionEnd={onSheetTransitionEnd}
-          >
+      {/* sheet 始终 mount，靠 transform+transition 控制；open=false 时 translateY(100%) 移出屏幕 */}
+      <div className="fixed inset-0 z-[80]" style={{ pointerEvents: open ? 'auto' : 'none' }}>
+        <div className="absolute inset-0 bg-ink/85 backdrop-blur-md"
+          onClick={() => setOpen(false)}
+          style={{
+            opacity: open ? 1 : 0,
+            pointerEvents: open ? 'auto' : 'none',
+            transition: 'opacity 200ms ease-out',
+          }}
+        />
+        <div className="absolute left-0 right-0 bottom-0 twh-sheet"
+          style={{
+            height: '52vh',
+            paddingBottom: 'env(safe-area-inset-bottom)',
+            transform: open ? `translateY(${dragY}px)` : 'translateY(100%)',
+            transition: dragging ? 'none' : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+        >
             <div className="twh-glow" aria-hidden />
 
             {/* header */}
@@ -603,9 +567,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                 )}
               </div>
             )}
-          </div>
         </div>
-      )}
+      </div>
 
       <InlineConfirmDialog
         open={delOpen}
