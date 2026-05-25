@@ -280,15 +280,20 @@ export function RecordMealSheet({
   function onCloseDragMove(e: React.PointerEvent) { updateCloseDrag(e.clientY); }
   function onCloseDragUp(e: React.PointerEvent) { endCloseDrag(e.clientY); }
 
-  // open=false 后 320ms 重置 view + dragY
+  // open=false 后 320ms 重置 view + dragY；open=true 时把 mode 回到「近期」
+  // 用 ref 持有最新 modeWheel.snapTo 闭包，避免 deps 变化触发 effect
+  const modeSnapToRef = useRef(modeWheel.snapTo);
+  modeSnapToRef.current = modeWheel.snapTo;
   useEffect(() => {
-    if (!open) {
-      const t = window.setTimeout(() => {
-        setView('list');
-        setDragY(0);
-      }, 320);
-      return () => window.clearTimeout(t);
+    if (open) {
+      modeSnapToRef.current(0, { animate: false, haptic: false });
+      return;
     }
+    const t = window.setTimeout(() => {
+      setView('list');
+      setDragY(0);
+    }, 320);
+    return () => window.clearTimeout(t);
   }, [open]);
 
   useEffect(() => () => {
