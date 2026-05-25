@@ -313,7 +313,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
         />
         <div className="absolute left-0 right-0 bottom-0 twh-sheet"
           style={{
-            height: 'clamp(340px, 42dvh, 400px)',
+            height: 'clamp(360px, 44dvh, 420px)',
             paddingBottom: 'env(safe-area-inset-bottom)',
             transform: open ? `translateY(${dragY}px)` : 'translateY(100%)',
             transition: dragging ? 'none' : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
@@ -458,8 +458,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                           const scale = Math.max(0.5, 1 - distC * 0.09);
                           const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
                           const isCenter = distC < 0.5;
-                          // 卡片小幅跟手：0.3x + clamp ±14，配合 cover-track 150 留出的 16px 上下 buffer，不溢出
-                          const yOffset = isCenter ? Math.max(-14, Math.min(14, verticalDrag * 0.3)) : 0;
+                          // 卡片小幅跟手：0.25x + clamp ±10，保守值確保任何 sheet 高度都不溢出 cover-wrap
+                          const yOffset = isCenter ? Math.max(-10, Math.min(10, verticalDrag * 0.25)) : 0;
                           return (
                             <div key={`${p.id}-${rel}`}
                               className={`twh-card ${isCenter ? 'twh-card-active' : ''} ${isCenter && pressing ? 'twh-card-pressing' : ''}`}
@@ -770,6 +770,7 @@ const styles = `
   position: relative;
   overflow: hidden; /* 卡片垂直拖動被 cover-wrap 裁，不溢出到 mode/dots */
   display: flex; align-items: center; justify-content: center;
+  min-height: 138px; /* 保證 cover-track 150 + card 118 + yOffset 10 都不被裁（138 = card 118 + 上下各 10） */
 }
 .twh-cover-mask-l, .twh-cover-mask-r {
   position: absolute; top: 0; bottom: 0; width: 70px;
@@ -891,13 +892,14 @@ const styles = `
 .twh-pager-wrap {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center;
-  padding: 12px 40px;
+  padding: 16px 40px;
   margin: 4px 12px 0;
+  min-height: 44px; /* iOS touch target 標準下限 */
   user-select: none;
   cursor: grab;
   background: rgba(200,255,0,0.03);
   border: 1px solid rgba(200,255,0,0.1);
-  border-radius: 14px;
+  border-radius: 16px;
   transition: background 0.2s, border-color 0.2s, border-style 0s;
 }
 .twh-pager-wrap:active {
