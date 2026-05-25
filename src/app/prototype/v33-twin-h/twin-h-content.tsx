@@ -15,7 +15,7 @@ const PRESET_AXIS_LOCK = 8;
 const VERTICAL_TRIGGER = 60;
 const CLOSE_DRAG_TRIGGER = 90;
 const DOT_PIXEL = 22;
-const LONG_PRESS_MS = 500;
+const LONG_PRESS_MS = 800;
 
 type SheetView = 'list' | 'create' | 'edit';
 
@@ -25,7 +25,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
   const [view, setView] = useState<SheetView>('list');
   const [delOpen, setDelOpen] = useState(false);
 
-  const modeWheel = useHWheelPicker(MODES.length, MODE_W, { cyclic: false, maxStep: 1 });
+  const modeWheel = useHWheelPicker(MODES.length, MODE_W, { cyclic: true, maxStep: 1 });
   const currentMode = MODES[modeWheel.idx]!.key;
 
   const [tickPulse, setTickPulse] = useState(0);
@@ -309,7 +309,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
         />
         <div className="absolute left-0 right-0 bottom-0 twh-sheet"
           style={{
-            height: 'clamp(360px, 46dvh, 440px)',
+            height: 'clamp(340px, 42dvh, 400px)',
             paddingBottom: 'env(safe-area-inset-bottom)',
             transform: open ? `translateY(${dragY}px)` : 'translateY(100%)',
             transition: dragging ? 'none' : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
@@ -326,8 +326,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
               style={{ touchAction: 'none' }}
             >
               <div className="twh-header-left">
-                <p className="display-roman text-[20px] leading-none">
-                  {view === 'list' ? '記一筆' : view === 'create' ? '新增' : '編輯'}
+                <p className="twh-title">
+                  {view === 'list' ? 'ADD MEAL' : view === 'create' ? 'NEW PRESET' : 'EDIT PRESET'}
                 </p>
               </div>
               {view === 'list' ? (
@@ -454,8 +454,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                           const scale = Math.max(0.5, 1 - distC * 0.09);
                           const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
                           const isCenter = distC < 0.5;
-                          // 卡片垂直視覺位移：0.5 倍跟手 + clamp ±56，避免在小高度被裁成半張
-                          const yOffset = isCenter ? Math.max(-56, Math.min(56, verticalDrag * 0.5)) : 0;
+                          // 卡片不再上下位移（避免溢出 cover-wrap）；垂直手勢只控制上下 hint 顯示
+                          const yOffset = 0;
                           return (
                             <div key={`${p.id}-${rel}`}
                               className={`twh-card ${isCenter ? 'twh-card-active' : ''} ${isCenter && pressing ? 'twh-card-pressing' : ''}`}
@@ -670,6 +670,14 @@ const styles = `
 }
 .twh-header:active { cursor: grabbing; }
 .twh-header-left { pointer-events: none; }
+.twh-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  line-height: 1;
+  color: var(--color-text);
+}
 .twh-icon-btn {
   width: 32px; height: 32px;
   background: rgba(28,28,34,0.7);
@@ -879,13 +887,13 @@ const styles = `
 .twh-pager-wrap {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center;
-  padding: 16px 32px;
-  margin: 6px 14px 0;
+  padding: 22px 40px;
+  margin: 8px 12px 0;
   user-select: none;
   cursor: grab;
   background: rgba(200,255,0,0.03);
   border: 1px solid rgba(200,255,0,0.1);
-  border-radius: 16px;
+  border-radius: 18px;
   transition: background 0.2s, border-color 0.2s, border-style 0s;
 }
 .twh-pager-wrap:active {
