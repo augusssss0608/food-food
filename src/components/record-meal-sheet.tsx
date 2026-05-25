@@ -15,18 +15,22 @@ const CLOSE_DRAG_TRIGGER = 90;
 const DOT_PIXEL = 22;
 const LONG_PRESS_MS = 800;
 
-type Mode = 'recent' | 'menu';
+type Mode = 'recent' | 'menu' | 'camera';
 const MODES: { key: Mode; label: string; sub: string }[] = [
   { key: 'recent', label: '近期', sub: 'recent' },
   { key: 'menu',   label: '菜單', sub: 'menu' },
+  { key: 'camera', label: '拍照', sub: 'camera' },
 ];
 
 function presetListForMode(presets: UserMealPreset[], mode: Mode): UserMealPreset[] {
   if (mode === 'recent') {
     return [...presets].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20);
   }
-  // menu
-  return [...presets].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+  if (mode === 'menu') {
+    return [...presets].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+  }
+  // camera: 不展示 preset 列表
+  return [];
 }
 
 type SheetView = 'list' | 'create' | 'edit';
@@ -86,7 +90,7 @@ export function RecordMealSheet({
   const longPressTimerRef = useRef<number | null>(null);
 
   function startLongPress() {
-    if (!currentPreset || recordingId != null) return;
+    if (currentMode === 'camera' || !currentPreset || recordingId != null) return;
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
     setPressing(true);
     longPressTimerRef.current = window.setTimeout(async () => {
@@ -141,7 +145,7 @@ export function RecordMealSheet({
   function onPresetPointerUp(e: React.PointerEvent) {
     cancelLongPress();
     const dy = startYRef.current != null ? e.clientY - startYRef.current : 0;
-    if (gestureAxis.current === 'vertical' && currentPreset) {
+    if (gestureAxis.current === 'vertical' && currentPreset && currentMode !== 'camera') {
       if (dy < -VERTICAL_TRIGGER) {
         if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
         setDelOpen(true);
@@ -323,10 +327,10 @@ export function RecordMealSheet({
     ? presetWheel.idx
     : Math.round((presetWheel.idx * (maxDots - 1)) / Math.max(1, total - 1));
 
-  // sheet 高度根據 view：list 矮（cover-flow 緊湊），create/edit 高（裝得下表單 6 字段不需 scroll）
+  // sheet 高度根據 view：list 矮（cover-flow 緊湊），create/edit 剛好裝下表單不 scroll
   const sheetHeight = view === 'list'
     ? 'calc(clamp(360px, 44dvh, 420px) + env(safe-area-inset-bottom))'
-    : 'calc(clamp(540px, 72dvh, 640px) + env(safe-area-inset-bottom))';
+    : 'calc(clamp(460px, 58dvh, 520px) + env(safe-area-inset-bottom))';
 
   return (
     <>
@@ -461,7 +465,16 @@ export function RecordMealSheet({
 
               {/* preset cover-flow */}
               <div className="flex-1 rms-cover-wrap min-h-0 relative">
-                {presetList.length === 0 ? (
+                {currentMode === 'camera' ? (
+                  <div className="rms-camera">
+                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                      <circle cx="12" cy="13" r="4" />
+                    </svg>
+                    <p className="text-[11px] font-mono uppercase tracking-wider text-text-3 mt-1">camera</p>
+                    <p className="text-[10px] text-text-4 mt-1">即將上線</p>
+                  </div>
+                ) : presetList.length === 0 ? (
                   <div className="rms-empty">
                     <p className="text-[13px] text-text-3 font-mono">no preset</p>
                     <button onClick={() => { onClearDuplicatePresetName(); setView('create'); }} className="rms-empty-cta">＋ new</button>
@@ -537,7 +550,7 @@ export function RecordMealSheet({
               </div>
 
               {/* page dots */}
-              {presetList.length > 0 && (
+              {currentMode !== 'camera' && presetList.length > 0 && (
                 <div className="flex-shrink-0 rms-pager-wrap"
                   onPointerDown={onDotsPointerDown}
                   onPointerMove={onDotsPointerMove}
@@ -557,6 +570,8 @@ export function RecordMealSheet({
               <p className="flex-shrink-0 rms-action-hint">
                 {recordingId
                   ? <span className="text-accent">recording…</span>
+                  : currentMode === 'camera'
+                  ? '點 ＋ 新增 · 下滑關閉'
                   : currentPreset
                   ? <>長按卡片<span className="text-accent">記錄</span>　·　↑刪除　·　↓編輯</>
                   : '滑動選 preset · 點 ＋ 新增'}
@@ -935,12 +950,12 @@ const styles = `
   user-select: none;
 }
 
-.rms-empty {
+.rms-empty, .rms-camera {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
   color: var(--color-accent);
-  gap: 8px;
+  gap: 4px;
 }
 .rms-empty-cta {
   background: var(--color-accent);
