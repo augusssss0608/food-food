@@ -34,6 +34,8 @@ type SheetView = 'list' | 'create' | 'edit';
 export interface RecordMealSheetProps {
   open: boolean;
   onClose: () => void;
+  /** 右下角常駐 knob 按鈕點擊回調（打開 sheet） */
+  onOpen: () => void;
   customPresets: UserMealPreset[];
   recordingId: string | null;
   /** 點長按完成觸發，記錄一筆 meal。返回 boolean 表示是否成功 */
@@ -49,6 +51,7 @@ export interface RecordMealSheetProps {
 export function RecordMealSheet({
   open,
   onClose,
+  onOpen,
   customPresets,
   recordingId,
   onPickCustomPreset,
@@ -320,8 +323,35 @@ export function RecordMealSheet({
     ? presetWheel.idx
     : Math.round((presetWheel.idx * (maxDots - 1)) / Math.max(1, total - 1));
 
+  // sheet 高度根據 view：list 矮（cover-flow 緊湊），create/edit 高（裝得下表單 6 字段不需 scroll）
+  const sheetHeight = view === 'list'
+    ? 'calc(clamp(360px, 44dvh, 420px) + env(safe-area-inset-bottom))'
+    : 'calc(clamp(540px, 72dvh, 640px) + env(safe-area-inset-bottom))';
+
   return (
     <>
+      {/* 右下角常駐 knob 浮動按鈕（打開 sheet 入口） */}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label="open add meal sheet"
+        className="z-[70]"
+        style={{
+          position: 'fixed',
+          right: 20,
+          bottom: 'calc(env(safe-area-inset-bottom) + 24px)',
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+        }}
+      >
+        <span className="rms-knob">
+          <span className="rms-knob-rule" aria-hidden />
+          <span className="rms-knob-dot" aria-hidden />
+        </span>
+      </button>
+
       {/* sheet 始终 mount，靠 transform+transition 控制；open=false 时 translateY(100%) 移出屏幕 */}
       <div className="fixed inset-0 z-[80]" style={{ pointerEvents: open ? 'auto' : 'none' }}>
         <div className="absolute inset-0 bg-ink/85 backdrop-blur-md"
@@ -334,10 +364,12 @@ export function RecordMealSheet({
         />
         <div className="absolute left-0 right-0 bottom-0 rms-sheet"
           style={{
-            height: 'calc(clamp(360px, 44dvh, 420px) + env(safe-area-inset-bottom))',
+            height: sheetHeight,
             paddingBottom: 'env(safe-area-inset-bottom)',
             transform: open ? `translateY(${dragY}px)` : 'translateY(100%)',
-            transition: dragging ? 'none' : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
+            transition: dragging
+              ? 'none'
+              : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1), height 280ms cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
           <div className="rms-glow" aria-hidden />
@@ -602,6 +634,39 @@ const styles = `
   0%, 100% { opacity: 0.35; }
   50% { opacity: 0.6; }
 }
+@keyframes rms-knob-dot-slide {
+  0%, 100% { transform: translate(-50%, -50%) translateX(-6px); }
+  50% { transform: translate(-50%, -50%) translateX(6px); }
+}
+
+/* ========== 右下角常駐 knob ========== */
+.rms-knob {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  width: 50px; height: 50px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(40,40,48,0.95), rgba(18,18,22,0.95));
+  border: 1.5px solid var(--color-accent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 24px -6px rgba(0,0,0,0.7), 0 0 0 4px rgba(200,255,0,0.08), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.rms-knob:active { transform: scale(0.92); }
+.rms-knob-rule {
+  display: block;
+  width: 28px; height: 2px;
+  border-radius: 999px;
+  background-image: repeating-linear-gradient(90deg, var(--color-accent) 0 2px, transparent 2px 6px);
+  opacity: 0.7;
+}
+.rms-knob-dot {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 6px; height: 6px;
+  background: var(--color-accent);
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(200,255,0,0.9);
+  animation: rms-knob-dot-slide 2.6s ease-in-out infinite;
+}
 @keyframes rms-progress-fill {
   from { stroke-dashoffset: 1; }
   to { stroke-dashoffset: 0; }
@@ -839,16 +904,9 @@ const styles = `
   min-height: 44px;
   user-select: none;
   cursor: grab;
-  background: rgba(200,255,0,0.03);
-  border: 1px solid rgba(200,255,0,0.1);
-  border-radius: 16px;
-  transition: background 0.2s, border-color 0.2s, border-style 0s;
 }
 .rms-pager-wrap:active {
   cursor: grabbing;
-  background: rgba(200,255,0,0.1);
-  border-color: rgba(200,255,0,0.45);
-  border-style: dashed;
 }
 .rms-pager {
   display: flex; gap: 8px; align-items: center;

@@ -527,9 +527,10 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
         </section>
       </PageShell>
 
-      {/* 「+」打開的新增餐面板（cover-flow 風格） */}
+      {/* 「+」/ 右下角 knob 打開的新增餐面板（cover-flow 風格） */}
       <RecordMealSheet
         open={addMealOpen}
+        onOpen={tryOpenAddMeal}
         onClose={() => { setAddMealOpen(false); setDuplicatePresetName(false); }}
         customPresets={customPresets}
         recordingId={presetBusy}
