@@ -98,7 +98,7 @@ export function MealPresetForm({
         placeholder="如：雞胸糙米飯"
         maxLength={50}
         invalid={duplicateError || (name.length > 0 && nameInvalid)}
-        hint={duplicateError ? '已存在同名菜單，請改名' : trimmedName.length > 0 ? `${trimmedName.length}/50` : undefined}
+        hint={duplicateError ? '已存在同名菜單，請改名' : trimmedName.length >= 40 ? `${trimmedName.length}/50` : undefined}
       />
       <NumberInput
         label="熱量 *"

@@ -422,7 +422,7 @@ export function RecordMealSheet({
                 {view === 'list' ? 'ADD MEAL' : view === 'create' ? 'NEW PRESET' : 'EDIT PRESET'}
               </p>
             </div>
-            {view === 'list' ? (
+            {view === 'list' && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -433,16 +433,6 @@ export function RecordMealSheet({
                 className="rms-icon-btn"
                 aria-label="new preset"
               >＋</button>
-            ) : (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClearDuplicatePresetName();
-                  setView('list');
-                }}
-                className="rms-icon-btn"
-                aria-label="back"
-              >←</button>
             )}
           </div>
 
@@ -537,7 +527,7 @@ export function RecordMealSheet({
                           </>
                         ) : (
                           <>
-                            <svg className="rms-cam-btn-icon" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <svg className="rms-cam-btn-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                               <path d="M14.5 4h-5L8 6H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-4l-1.5-2Z" />
                               <circle cx="12" cy="13" r="3.5" />
                             </svg>
@@ -780,6 +770,18 @@ const styles = `
   box-shadow: 0 -16px 48px -12px rgba(0,0,0,0.6);
   overflow: hidden;
   will-change: transform;
+  /* 全 sheet 禁选取 + 禁 iOS 长按 callout，避免拷貝/查詢/翻譯彈出 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+/* 表單輸入需要保留可選取以支援編輯 */
+.rms-sheet input,
+.rms-sheet textarea {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 .rms-glow {
   position: absolute;
@@ -1047,13 +1049,13 @@ const styles = `
 
 /* ========== camera entry button (dashed, compact) ========== */
 .rms-cam-btn {
-  width: 220px; height: 108px;
-  border-radius: 16px;
+  width: 264px; height: 130px;
+  border-radius: 18px;
   border: 1.5px dashed rgba(200,255,0,0.32);
   background: rgba(20,22,28,0.45);
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  gap: 8px;
+  gap: 10px;
   color: var(--color-text-2);
   cursor: pointer;
   font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
