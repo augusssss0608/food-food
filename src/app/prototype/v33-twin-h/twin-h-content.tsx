@@ -308,7 +308,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
         />
         <div className="absolute left-0 right-0 bottom-0 twh-sheet"
           style={{
-            height: 'clamp(360px, 44dvh, 420px)',
+            // 物理高度含 safe-area 讓 sheet 視覺延伸到屏幕底（home indicator 區），不漏出底色
+            height: 'calc(clamp(360px, 44dvh, 420px) + env(safe-area-inset-bottom))',
             paddingBottom: 'env(safe-area-inset-bottom)',
             transform: open ? `translateY(${dragY}px)` : 'translateY(100%)',
             transition: dragging ? 'none' : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
