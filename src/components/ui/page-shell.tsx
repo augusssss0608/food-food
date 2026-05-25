@@ -31,9 +31,17 @@ export function PageShell({
         px,
       ].join(' ')}
       style={{
+        // 不依賴 globals.css `main { height: 100dvh }`，直接 fixed inset:0 鎖定 vp 全屏（viewportFit:cover 含 safe-area）
+        position: 'fixed',
+        inset: 0,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: '100%',
+        maxWidth: wide ? '64rem' : '28rem',
         paddingTop: 'calc(env(safe-area-inset-top) + 1rem)',
-        // 只留 home indicator safe-area，去掉 2rem fallback 黑邊
         paddingBottom: 'env(safe-area-inset-bottom)',
+        overflowY: 'auto',
+        overscrollBehaviorY: 'contain',
       }}
     >
       <div className="w-full grow">{children}</div>
