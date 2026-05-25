@@ -26,8 +26,8 @@ export function ViewportDebug() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    // 臨時：默認啟用（PWA standalone 不會帶 query string，沒法用 ?debugViewport=1 觸發）
-    // 用戶截圖後撤回此改動
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get('debugViewport') !== '1') return;
     setEnabled(true);
 
     function update() {
