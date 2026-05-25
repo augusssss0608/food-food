@@ -65,13 +65,6 @@ export function AppDrawer({ open, onClose }: { open: boolean; onClose: () => voi
         onClick={onClose}
       />
       <DrawerItem
-        icon={<IconBeaker />}
-        label="入口原型"
-        hint="新增餐 8 種交互方案體驗"
-        href="/prototype"
-        onClick={onClose}
-      />
-      <DrawerItem
         icon={<IconLogout />}
         label="登出"
         onClick={signOut}
@@ -95,4 +88,3 @@ const IconActivity = () => ic(<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"
 const IconLogout = () => ic(<><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></>);
 const IconHistory = () => ic(<><path d="M3 12a9 9 0 1 0 3-6.7" /><polyline points="3 4 3 10 9 10" /><polyline points="12 7 12 12 15 14" /></>);
 const IconChart = () => ic(<><polyline points="3 17 9 11 13 15 21 7" /><polyline points="14 7 21 7 21 14" /></>);
-const IconBeaker = () => ic(<><path d="M9 3h6" /><path d="M10 3v6L4 20a1 1 0 0 0 .9 1.5h14.2A1 1 0 0 0 20 20l-6-11V3" /><path d="M7.5 14h9" /></>);
