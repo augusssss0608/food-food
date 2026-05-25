@@ -15,7 +15,7 @@ const PRESET_AXIS_LOCK = 8;
 const VERTICAL_TRIGGER = 60;
 const CLOSE_DRAG_TRIGGER = 90;
 const DOT_PIXEL = 22;
-const LONG_PRESS_MS = 1000;
+const LONG_PRESS_MS = 500;
 
 type SheetView = 'list' | 'create' | 'edit';
 
@@ -326,11 +326,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
               style={{ touchAction: 'none' }}
             >
               <div className="twh-header-left">
-                <p className="text-[9px] uppercase tracking-[0.3em] text-text-3 font-mono">
-                  {view === 'list' ? 'add meal' : view === 'create' ? 'new preset' : 'edit preset'}
-                </p>
-                <p className="display-roman text-[18px] leading-none mt-0.5">
-                  {view === 'list' ? '記一筆' : view === 'create' ? '新 preset' : '編輯'}
+                <p className="display-roman text-[22px] leading-none">
+                  {view === 'list' ? '記一筆' : view === 'create' ? '新增' : '編輯'}
                 </p>
               </div>
               {view === 'list' ? (
@@ -457,14 +454,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                           const scale = Math.max(0.5, 1 - distC * 0.09);
                           const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
                           const isCenter = distC < 0.5;
-                          // clamp 卡片垂直位移：超過邊界後阻尼，避免完全壓到 mode / dots
-                          const rawY = isCenter ? verticalDrag : 0;
-                          const yMax = 130;
-                          const yOffset = Math.abs(rawY) <= yMax
-                            ? rawY
-                            : (rawY > 0
-                              ? yMax + (rawY - yMax) * 0.3
-                              : -yMax + (rawY + yMax) * 0.3);
+                          // 卡片垂直位移 clamp 在 cover-wrap 自己的範圍（被 overflow:hidden 裁）
+                          const yOffset = isCenter ? Math.max(-100, Math.min(100, verticalDrag)) : 0;
                           return (
                             <div key={`${p.id}-${rel}`}
                               className={`twh-card ${isCenter ? 'twh-card-active' : ''} ${isCenter && pressing ? 'twh-card-pressing' : ''}`}
@@ -537,7 +528,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                       : currentMode === 'camera'
                       ? '點 ＋ 新增 · 下滑關閉'
                       : currentPreset
-                      ? <>長按卡片 <span className="text-accent">1s</span> 記錄　·　↑刪除　·　↓編輯</>
+                      ? <>長按卡片<span className="text-accent">記錄</span>　·　↑刪除　·　↓編輯</>
                       : '滑動選 preset · 點 ＋ 新增'}
                   </p>
                 </div>
@@ -651,9 +642,7 @@ const styles = `
 /* ========== 半弹窗 ========== */
 .twh-sheet {
   display: flex; flex-direction: column;
-  background:
-    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(200,255,0,0.06) 0%, transparent 60%),
-    linear-gradient(180deg, #14141a 0%, #0a0a0d 100%);
+  background: linear-gradient(180deg, #12121a 0%, #0a0a10 100%);
   border-top: 1px solid rgba(200,255,0,0.45);
   border-top-left-radius: 24px;
   border-top-right-radius: 24px;
@@ -708,8 +697,8 @@ const styles = `
   position: absolute; top: 0; bottom: 0; width: 50px;
   pointer-events: none; z-index: 2;
 }
-.twh-mode-mask-l { left: 0; background: linear-gradient(90deg, #0a0a0d 0%, transparent 100%); }
-.twh-mode-mask-r { right: 0; background: linear-gradient(-90deg, #0a0a0d 0%, transparent 100%); }
+.twh-mode-mask-l { left: 0; background: linear-gradient(90deg, #12121a 0%, transparent 100%); }
+.twh-mode-mask-r { right: 0; background: linear-gradient(-90deg, #12121a 0%, transparent 100%); }
 .twh-mode-track {
   position: absolute;
   left: 0; right: 0; top: 0; bottom: 8px;
@@ -767,15 +756,15 @@ const styles = `
 /* ========== preset cover flow ========== */
 .twh-cover-wrap {
   position: relative;
-  overflow: visible; /* 允許卡片垂直滑出此區域 */
+  overflow: hidden; /* 卡片垂直拖動被 cover-wrap 裁，不溢出到 mode/dots */
   display: flex; align-items: center; justify-content: center;
 }
 .twh-cover-mask-l, .twh-cover-mask-r {
-  position: absolute; top: -30%; bottom: -30%; width: 70px;
+  position: absolute; top: 0; bottom: 0; width: 70px;
   pointer-events: none; z-index: 3;
 }
-.twh-cover-mask-l { left: 0; background: linear-gradient(90deg, #0a0a0d 0%, rgba(10,10,13,0.6) 60%, transparent 100%); }
-.twh-cover-mask-r { right: 0; background: linear-gradient(-90deg, #0a0a0d 0%, rgba(10,10,13,0.6) 60%, transparent 100%); }
+.twh-cover-mask-l { left: 0; background: linear-gradient(90deg, #0e0e15 0%, rgba(14,14,21,0.6) 60%, transparent 100%); }
+.twh-cover-mask-r { right: 0; background: linear-gradient(-90deg, #0e0e15 0%, rgba(14,14,21,0.6) 60%, transparent 100%); }
 .twh-cover-track {
   position: relative;
   width: ${CARD_W}px;
@@ -798,6 +787,9 @@ const styles = `
   font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
   will-change: transform, opacity;
   backdrop-filter: blur(6px);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .twh-card-name {
   font-size: 16px;
@@ -887,13 +879,13 @@ const styles = `
 .twh-pager-wrap {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center;
-  padding: 10px 24px;
-  margin: 4px 18px 0;
+  padding: 16px 32px;
+  margin: 6px 14px 0;
   user-select: none;
   cursor: grab;
   background: rgba(200,255,0,0.05);
   border: 1px dashed rgba(200,255,0,0.28);
-  border-radius: 14px;
+  border-radius: 16px;
   transition: background 0.2s, border-color 0.2s;
 }
 .twh-pager-wrap:active {
