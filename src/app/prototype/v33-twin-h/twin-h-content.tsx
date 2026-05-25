@@ -770,7 +770,7 @@ const styles = `
   position: relative;
   overflow: hidden; /* 卡片垂直拖動被 cover-wrap 裁，不溢出到 mode/dots */
   display: flex; align-items: center; justify-content: center;
-  min-height: 138px; /* 保證 cover-track 150 + card 118 + yOffset 10 都不被裁（138 = card 118 + 上下各 10） */
+  min-height: 138px; /* 保證 card 118 + yOffset ±10 視覺不被裁（cover-track 150 在小屏可能上下各裁 6，但 card 仍在可視範圍內） */
 }
 .twh-cover-mask-l, .twh-cover-mask-r {
   position: absolute; top: 0; bottom: 0; width: 70px;
