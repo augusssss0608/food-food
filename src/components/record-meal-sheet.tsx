@@ -4,9 +4,10 @@ import type { UserMealPreset } from '@/lib/home-snapshot';
 import { useHWheelPicker } from '@/lib/h-wheel-picker';
 import { MealPresetForm, type MealPresetFormInput } from '@/components/meal-preset-form';
 import { Dialog } from '@/components/ui/dialog';
-import { PhotoInput } from '@/components/photo-input';
 import { MealPreviewCard, type MealPreview } from '@/components/meal-preview-card';
 import { Spinner } from '@/components/ui/spinner';
+import { normalizeImage } from '@/lib/image/normalize';
+import { compressImage, fileToBase64 } from '@/lib/image/compress';
 
 const MODE_W = 116;
 const CARD_W = 200;
@@ -85,6 +86,21 @@ export function RecordMealSheet({
   const [view, setView] = useState<SheetView>('list');
   const [delOpen, setDelOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+
+  // —— camera: 內嵌 file input + 圖片預處理 ——
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  async function handlePhotoFile(f: File) {
+    setPhotoBusy(true);
+    try {
+      const normalized = await normalizeImage(f);
+      const compressed = await compressImage(normalized);
+      const b64 = await fileToBase64(compressed);
+      await onUploadMealPhoto(b64);
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   const modeWheel = useHWheelPicker(MODES.length, MODE_W, { cyclic: true, maxStep: 1 });
   const currentMode = MODES[modeWheel.idx]!.key;
@@ -343,8 +359,9 @@ export function RecordMealSheet({
     ? presetWheel.idx
     : Math.round((presetWheel.idx * (maxDots - 1)) / Math.max(1, total - 1));
 
-  // sheet 高度統一：list / create / edit 都用同高，避免切換閃；剛好裝下表單 6 字段
-  const sheetHeight = 'calc(clamp(440px, 56dvh, 520px) + env(safe-area-inset-bottom))';
+  // sheet 高度統一：list / create / edit 都用同高，避免切換閃；
+  // 上限按表單 6 字段精算 (header 54 + padding 28 + 6 行 368 ≈ 450)，多留 10px slack
+  const sheetHeight = 'calc(clamp(420px, 54dvh, 460px) + env(safe-area-inset-bottom))';
 
   return (
     <>
@@ -493,16 +510,62 @@ export function RecordMealSheet({
                     </div>
                   ) : mealExtractBusy ? (
                     <div className="rms-camera">
-                      <Spinner size={28} className="text-accent" />
-                      <p className="text-[11px] font-mono uppercase tracking-wider text-text-3 mt-2">analyzing…</p>
+                      <div className="rms-cam-card rms-cam-card-busy" aria-busy>
+                        <Spinner size={26} className="text-accent" />
+                        <span className="rms-cam-label">ANALYZING</span>
+                        <span className="rms-cam-sub">AI 識別中…</span>
+                      </div>
+                      <div className="rms-cam-meta" aria-hidden>
+                        <span className="rms-cam-meta-dot" />
+                        <span>WAIT FOR RESULT</span>
+                        <span className="rms-cam-meta-dot" />
+                      </div>
                     </div>
                   ) : (
                     <div className="rms-camera">
-                      <PhotoInput
-                        onPicked={(b64) => { void onUploadMealPhoto(b64); }}
-                        label="拍照 / 選圖"
+                      <input
+                        ref={cameraInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        disabled={photoBusy}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void handlePhotoFile(f);
+                          e.currentTarget.value = '';
+                        }}
                       />
-                      <p className="text-[10px] font-mono uppercase tracking-wider text-text-4 mt-2">AI 自動識別熱量 / 營養素</p>
+                      <button
+                        type="button"
+                        onClick={() => cameraInputRef.current?.click()}
+                        disabled={photoBusy}
+                        className="rms-cam-card"
+                      >
+                        <span className="rms-cam-glow" aria-hidden />
+                        {photoBusy ? (
+                          <>
+                            <Spinner size={26} className="text-accent" />
+                            <span className="rms-cam-label">PROCESSING</span>
+                            <span className="rms-cam-sub">壓縮中…</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="rms-cam-icon" aria-hidden>
+                              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M14.5 4h-5L8 6H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-4l-1.5-2Z" />
+                                <circle cx="12" cy="13" r="3.5" />
+                              </svg>
+                            </span>
+                            <span className="rms-cam-label">SHOOT / UPLOAD</span>
+                            <span className="rms-cam-sub">拍照 · 相簿</span>
+                          </>
+                        )}
+                      </button>
+                      <div className="rms-cam-meta" aria-hidden>
+                        <span className="rms-cam-meta-dot" />
+                        <span>AI · KCAL / MACROS</span>
+                        <span className="rms-cam-meta-dot" />
+                      </div>
                     </div>
                   )
                 ) : presetList.length === 0 ? (
@@ -1000,5 +1063,95 @@ const styles = `
   letter-spacing: 0.14em;
   cursor: pointer;
   box-shadow: 0 6px 16px -4px rgba(200,255,0,0.4);
+}
+
+/* ========== camera entry card ========== */
+.rms-cam-card {
+  position: relative;
+  width: 220px; height: 118px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(36,40,24,0.85) 0%, rgba(20,22,18,0.95) 100%);
+  border: 1.5px solid rgba(200,255,0,0.55);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 6px;
+  color: var(--color-accent);
+  cursor: pointer;
+  padding: 12px;
+  box-shadow:
+    0 14px 32px -12px rgba(0,0,0,0.7),
+    0 0 28px rgba(200,255,0,0.18),
+    inset 0 1px 0 rgba(200,255,0,0.12);
+  font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
+  transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.rms-cam-card:active {
+  transform: scale(0.97);
+  border-color: rgba(200,255,0,0.9);
+  box-shadow:
+    0 8px 20px -8px rgba(0,0,0,0.7),
+    0 0 36px rgba(200,255,0,0.28),
+    inset 0 1px 0 rgba(200,255,0,0.2);
+}
+.rms-cam-card:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.rms-cam-card-busy {
+  cursor: default;
+  border-color: rgba(200,255,0,0.35);
+}
+.rms-cam-glow {
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 28% 0%, rgba(200,255,0,0.22), transparent 55%),
+    radial-gradient(ellipse at 72% 100%, rgba(200,255,0,0.08), transparent 60%);
+  opacity: 0.9;
+}
+.rms-cam-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  background: rgba(200,255,0,0.1);
+  border: 1px solid rgba(200,255,0,0.35);
+  box-shadow: inset 0 0 10px rgba(200,255,0,0.15);
+  color: var(--color-accent);
+}
+.rms-cam-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  line-height: 1;
+  margin-top: 2px;
+}
+.rms-cam-sub {
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
+  opacity: 0.55;
+  line-height: 1;
+  color: var(--color-text-2);
+}
+.rms-cam-meta {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: var(--color-text-3);
+  opacity: 0.55;
+}
+.rms-cam-meta-dot {
+  width: 4px; height: 4px;
+  background: var(--color-accent);
+  border-radius: 50%;
+  opacity: 0.75;
+  box-shadow: 0 0 6px rgba(200,255,0,0.5);
 }
 `;
