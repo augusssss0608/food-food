@@ -37,7 +37,9 @@ export const metadata: Metadata = {
   applicationName: 'food-food',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
+    // black-translucent 在 iOS PWA + viewport-fit:cover 下會讓 viewport 計算異常
+    // （hakone-trip PWA 沒設此項，沒底部黑邊問題）。改用 'default' 讓系統正常處理 status bar
+    statusBarStyle: 'default',
     title: 'food-food',
   },
   icons: {
