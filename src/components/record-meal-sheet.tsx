@@ -1,0 +1,900 @@
+'use client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { UserMealPreset } from '@/lib/home-snapshot';
+import { useHWheelPicker } from '@/lib/h-wheel-picker';
+import { MealPresetForm, type MealPresetFormInput } from '@/components/meal-preset-form';
+import { Dialog } from '@/components/ui/dialog';
+
+const MODE_W = 116;
+const CARD_W = 200;
+const CARD_INNER_W = CARD_W - 16;
+const CARD_INNER_H = 118;
+const PRESET_AXIS_LOCK = 8;
+const VERTICAL_TRIGGER = 60;
+const CLOSE_DRAG_TRIGGER = 90;
+const DOT_PIXEL = 22;
+const LONG_PRESS_MS = 800;
+
+type Mode = 'recent' | 'menu';
+const MODES: { key: Mode; label: string; sub: string }[] = [
+  { key: 'recent', label: '近期', sub: 'recent' },
+  { key: 'menu',   label: '菜單', sub: 'menu' },
+];
+
+function presetListForMode(presets: UserMealPreset[], mode: Mode): UserMealPreset[] {
+  if (mode === 'recent') {
+    return [...presets].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20);
+  }
+  // menu
+  return [...presets].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+}
+
+type SheetView = 'list' | 'create' | 'edit';
+
+export interface RecordMealSheetProps {
+  open: boolean;
+  onClose: () => void;
+  customPresets: UserMealPreset[];
+  recordingId: string | null;
+  /** 點長按完成觸發，記錄一筆 meal。返回 boolean 表示是否成功 */
+  onPickCustomPreset: (preset: UserMealPreset) => Promise<boolean> | boolean | void;
+  presetBusy: boolean;
+  duplicatePresetName: boolean;
+  onClearDuplicatePresetName: () => void;
+  onCreatePreset: (input: MealPresetFormInput) => Promise<boolean>;
+  onUpdatePreset: (id: string, input: MealPresetFormInput) => Promise<boolean>;
+  onDeletePreset: (id: string) => Promise<boolean>;
+}
+
+export function RecordMealSheet({
+  open,
+  onClose,
+  customPresets,
+  recordingId,
+  onPickCustomPreset,
+  presetBusy,
+  duplicatePresetName,
+  onClearDuplicatePresetName,
+  onCreatePreset,
+  onUpdatePreset,
+  onDeletePreset,
+}: RecordMealSheetProps) {
+  const [view, setView] = useState<SheetView>('list');
+  const [delOpen, setDelOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  const modeWheel = useHWheelPicker(MODES.length, MODE_W, { cyclic: true, maxStep: 1 });
+  const currentMode = MODES[modeWheel.idx]!.key;
+
+  const [tickPulse, setTickPulse] = useState(0);
+  const presetList = useMemo(() => presetListForMode(customPresets, currentMode), [customPresets, currentMode]);
+  const presetWheel = useHWheelPicker(presetList.length, CARD_W, {
+    maxStep: 1,
+    onTick: () => setTickPulse((t) => t + 1),
+  });
+  const currentPreset = presetList[presetWheel.idx];
+
+  // —— preset 手势：水平 1-step wheel / 垂直 CRUD / 长按 record ——
+  const gestureAxis = useRef<'idle' | 'horizontal' | 'vertical'>('idle');
+  const startXRef = useRef<number | null>(null);
+  const startYRef = useRef<number | null>(null);
+  const [verticalDrag, setVerticalDrag] = useState(0);
+  const [pressing, setPressing] = useState(false);
+  const longPressTimerRef = useRef<number | null>(null);
+
+  function startLongPress() {
+    if (!currentPreset || recordingId != null) return;
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    setPressing(true);
+    longPressTimerRef.current = window.setTimeout(async () => {
+      longPressTimerRef.current = null;
+      setPressing(false);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate([6, 30, 18]); } catch {}
+      }
+      if (currentPreset) {
+        const ok = await onPickCustomPreset(currentPreset);
+        if (ok !== false) onClose();
+      }
+    }, LONG_PRESS_MS);
+  }
+  function cancelLongPress() {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (pressing) setPressing(false);
+  }
+
+  function onPresetPointerDown(e: React.PointerEvent) {
+    gestureAxis.current = 'idle';
+    startXRef.current = e.clientX;
+    startYRef.current = e.clientY;
+    setVerticalDrag(0);
+    presetWheel.pointerHandlers.onPointerDown(e);
+    startLongPress();
+  }
+  function onPresetPointerMove(e: React.PointerEvent) {
+    if (startXRef.current == null || startYRef.current == null) return;
+    const dx = e.clientX - startXRef.current;
+    const dy = e.clientY - startYRef.current;
+    if (gestureAxis.current === 'idle') {
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+      if (absDx > PRESET_AXIS_LOCK || absDy > PRESET_AXIS_LOCK) {
+        gestureAxis.current = absDx > absDy ? 'horizontal' : 'vertical';
+        cancelLongPress();
+        if (gestureAxis.current === 'vertical') {
+          presetWheel.pointerHandlers.onPointerCancel(e);
+        }
+      }
+    }
+    if (gestureAxis.current === 'horizontal') {
+      presetWheel.pointerHandlers.onPointerMove(e);
+    } else if (gestureAxis.current === 'vertical') {
+      setVerticalDrag(dy);
+    }
+  }
+  function onPresetPointerUp(e: React.PointerEvent) {
+    cancelLongPress();
+    const dy = startYRef.current != null ? e.clientY - startYRef.current : 0;
+    if (gestureAxis.current === 'vertical' && currentPreset) {
+      if (dy < -VERTICAL_TRIGGER) {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+        setDelOpen(true);
+      } else if (dy > VERTICAL_TRIGGER) {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+        onClearDuplicatePresetName();
+        setView('edit');
+      }
+    } else if (gestureAxis.current === 'horizontal') {
+      presetWheel.pointerHandlers.onPointerUp(e);
+    } else {
+      presetWheel.pointerHandlers.onPointerCancel(e);
+    }
+    gestureAxis.current = 'idle';
+    startXRef.current = null;
+    startYRef.current = null;
+    setVerticalDrag(0);
+  }
+  function onPresetPointerCancel(e: React.PointerEvent) {
+    cancelLongPress();
+    presetWheel.pointerHandlers.onPointerCancel(e);
+    gestureAxis.current = 'idle';
+    startXRef.current = null;
+    startYRef.current = null;
+    setVerticalDrag(0);
+  }
+
+  // —— page dots scrub ——
+  const dotsStartX = useRef<number | null>(null);
+  const dotsStartIdx = useRef<number>(0);
+  const dotsLastIdx = useRef<number>(0);
+  const dotsLastVibrate = useRef<number>(0);
+  function onDotsPointerDown(e: React.PointerEvent) {
+    dotsStartX.current = e.clientX;
+    dotsStartIdx.current = presetWheel.idx;
+    dotsLastIdx.current = presetWheel.idx;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  }
+  function onDotsPointerMove(e: React.PointerEvent) {
+    if (dotsStartX.current == null) return;
+    const dx = e.clientX - dotsStartX.current;
+    const delta = Math.round(dx / DOT_PIXEL);
+    const len = presetList.length;
+    if (len === 0) return;
+    const raw = dotsStartIdx.current + delta;
+    const newIdx = ((raw % len) + len) % len;
+    if (newIdx !== dotsLastIdx.current) {
+      presetWheel.snapTo(newIdx, { animate: false, haptic: false });
+      dotsLastIdx.current = newIdx;
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        const now = performance.now();
+        if (now - dotsLastVibrate.current > 50) {
+          try { navigator.vibrate(2); } catch {}
+          dotsLastVibrate.current = now;
+        }
+      }
+    }
+  }
+  function onDotsPointerUp() {
+    dotsStartX.current = null;
+  }
+
+  // —— sheet 下滑关闭 ——
+  const closeStartY = useRef<number | null>(null);
+  const closeDragMoved = useRef(false);
+  const [dragY, setDragY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+
+  function startCloseDrag(clientY: number) {
+    if (!open) return;
+    closeStartY.current = clientY;
+    closeDragMoved.current = false;
+    setDragging(true);
+  }
+  function updateCloseDrag(clientY: number) {
+    if (closeStartY.current == null) return;
+    const dy = clientY - closeStartY.current;
+    if (Math.abs(dy) > 4) closeDragMoved.current = true;
+    setDragY(Math.max(0, dy));
+  }
+  function endCloseDrag(clientY: number) {
+    if (closeStartY.current == null) return;
+    const dy = clientY - closeStartY.current;
+    closeStartY.current = null;
+    setDragging(false);
+    if (dy > CLOSE_DRAG_TRIGGER) {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+      onClose();
+    } else {
+      setDragY(0);
+    }
+  }
+  function cancelCloseDrag() {
+    closeStartY.current = null;
+    closeDragMoved.current = false;
+    setDragging(false);
+    setDragY(0);
+  }
+  function onCloseDragDown(e: React.PointerEvent) { startCloseDrag(e.clientY); }
+  function onCloseDragMove(e: React.PointerEvent) { updateCloseDrag(e.clientY); }
+  function onCloseDragUp(e: React.PointerEvent) { endCloseDrag(e.clientY); }
+
+  // open=false 后 320ms 重置 view + dragY
+  useEffect(() => {
+    if (!open) {
+      const t = window.setTimeout(() => {
+        setView('list');
+        setDragY(0);
+      }, 320);
+      return () => window.clearTimeout(t);
+    }
+  }, [open]);
+
+  useEffect(() => () => {
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+  }, []);
+
+  // —— mode 手势：水平 wheel / 垂直向下 close drag ——
+  const modeGestureAxis = useRef<'idle' | 'horizontal' | 'vertical'>('idle');
+  const modeStartXRef = useRef<number | null>(null);
+  const modeStartYRef = useRef<number | null>(null);
+
+  function onModePointerDown(e: React.PointerEvent) {
+    modeGestureAxis.current = 'idle';
+    modeStartXRef.current = e.clientX;
+    modeStartYRef.current = e.clientY;
+    modeWheel.pointerHandlers.onPointerDown(e);
+  }
+  function onModePointerMove(e: React.PointerEvent) {
+    if (modeStartXRef.current == null || modeStartYRef.current == null) return;
+    const dx = e.clientX - modeStartXRef.current;
+    const dy = e.clientY - modeStartYRef.current;
+    if (modeGestureAxis.current === 'idle') {
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+      if (absDx > PRESET_AXIS_LOCK || absDy > PRESET_AXIS_LOCK) {
+        if (absDx > absDy) {
+          modeGestureAxis.current = 'horizontal';
+        } else if (dy > 0) {
+          modeGestureAxis.current = 'vertical';
+          modeWheel.pointerHandlers.onPointerCancel(e);
+          startCloseDrag(modeStartYRef.current);
+        } else {
+          modeGestureAxis.current = 'horizontal';
+        }
+      }
+    }
+    if (modeGestureAxis.current === 'horizontal') {
+      modeWheel.pointerHandlers.onPointerMove(e);
+    } else if (modeGestureAxis.current === 'vertical') {
+      updateCloseDrag(e.clientY);
+    }
+  }
+  function onModePointerUp(e: React.PointerEvent) {
+    if (modeGestureAxis.current === 'vertical') {
+      endCloseDrag(e.clientY);
+    } else if (modeGestureAxis.current === 'horizontal') {
+      modeWheel.pointerHandlers.onPointerUp(e);
+    } else {
+      modeWheel.pointerHandlers.onPointerCancel(e);
+    }
+    modeGestureAxis.current = 'idle';
+    modeStartXRef.current = null;
+    modeStartYRef.current = null;
+  }
+  function onModePointerCancel(e: React.PointerEvent) {
+    modeWheel.pointerHandlers.onPointerCancel(e);
+    cancelCloseDrag();
+    modeGestureAxis.current = 'idle';
+    modeStartXRef.current = null;
+    modeStartYRef.current = null;
+  }
+
+  // page indicator dots
+  const total = presetList.length;
+  const maxDots = 7;
+  const dotsToShow = Math.min(total, maxDots);
+  const activeDot = total <= maxDots
+    ? presetWheel.idx
+    : Math.round((presetWheel.idx * (maxDots - 1)) / Math.max(1, total - 1));
+
+  return (
+    <>
+      {/* sheet 始终 mount，靠 transform+transition 控制；open=false 时 translateY(100%) 移出屏幕 */}
+      <div className="fixed inset-0 z-[80]" style={{ pointerEvents: open ? 'auto' : 'none' }}>
+        <div className="absolute inset-0 bg-ink/85 backdrop-blur-md"
+          onClick={() => onClose()}
+          style={{
+            opacity: open ? 1 : 0,
+            pointerEvents: open ? 'auto' : 'none',
+            transition: 'opacity 200ms ease-out',
+          }}
+        />
+        <div className="absolute left-0 right-0 bottom-0 rms-sheet"
+          style={{
+            height: 'calc(clamp(360px, 44dvh, 420px) + env(safe-area-inset-bottom))',
+            paddingBottom: 'env(safe-area-inset-bottom)',
+            transform: open ? `translateY(${dragY}px)` : 'translateY(100%)',
+            transition: dragging ? 'none' : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+        >
+          <div className="rms-glow" aria-hidden />
+
+          {/* header */}
+          <div className="rms-header flex-shrink-0"
+            onPointerDown={onCloseDragDown}
+            onPointerMove={onCloseDragMove}
+            onPointerUp={onCloseDragUp}
+            onPointerCancel={cancelCloseDrag}
+            style={{ touchAction: 'none' }}
+          >
+            <div className="rms-header-left">
+              <p className="rms-title">
+                {view === 'list' ? 'ADD MEAL' : view === 'create' ? 'NEW PRESET' : 'EDIT PRESET'}
+              </p>
+            </div>
+            {view === 'list' ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (closeDragMoved.current) return;
+                  onClearDuplicatePresetName();
+                  setView('create');
+                }}
+                className="rms-icon-btn"
+                aria-label="new preset"
+              >＋</button>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClearDuplicatePresetName();
+                  setView('list');
+                }}
+                className="rms-icon-btn"
+                aria-label="back"
+              >←</button>
+            )}
+          </div>
+
+          {view === 'list' && (
+            <>
+              {/* mode strip */}
+              <div className="flex-shrink-0 rms-mode-strip">
+                <div className="rms-mode-mask-l" aria-hidden />
+                <div className="rms-mode-mask-r" aria-hidden />
+                <div className="rms-mode-track"
+                  onPointerDown={onModePointerDown}
+                  onPointerMove={onModePointerMove}
+                  onPointerUp={onModePointerUp}
+                  onPointerCancel={onModePointerCancel}
+                  style={{ touchAction: 'none' }}
+                >
+                  {[-1, 0, 1].map((rel) => {
+                    const realIdx = modeWheel.getOffsetIdx(rel);
+                    if (realIdx == null) return null;
+                    const m = MODES[realIdx];
+                    if (!m) return null;
+                    const visualPos = rel * MODE_W + modeWheel.dragOffset;
+                    const distC = Math.abs(visualPos) / MODE_W;
+                    const opacity = Math.max(0.25, Math.min(1, 1 - distC * 0.5));
+                    const isCenter = distC < 0.5;
+                    return (
+                      <button key={m.key}
+                        type="button"
+                        onClick={() => {
+                          if (modeWheel.isAnimating) return;
+                          if (Math.abs(modeWheel.dragOffsetRef.current) > 6) return;
+                          if (realIdx === modeWheel.idx) return;
+                          modeWheel.snapTo(realIdx, { animate: true });
+                        }}
+                        className={`rms-mode-cell ${isCenter ? 'rms-mode-cell-active' : ''}`}
+                        style={{
+                          transform: `translate(-50%, -50%) translateX(${visualPos}px)`,
+                          opacity,
+                        }}
+                      >
+                        <span className="rms-mode-label">{m.label}</span>
+                        <span className="rms-mode-sub">{m.sub}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="rms-mode-underline" aria-hidden
+                  style={{ transform: `translateX(calc(-50% + ${modeWheel.dragOffset * 0.3}px))` }}
+                />
+              </div>
+
+              {/* preset cover-flow */}
+              <div className="flex-1 rms-cover-wrap min-h-0 relative">
+                {presetList.length === 0 ? (
+                  <div className="rms-empty">
+                    <p className="text-[13px] text-text-3 font-mono">no preset</p>
+                    <button onClick={() => { onClearDuplicatePresetName(); setView('create'); }} className="rms-empty-cta">＋ new</button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="rms-cover-mask-l" aria-hidden />
+                    <div className="rms-cover-mask-r" aria-hidden />
+                    <div className="rms-cover-track"
+                      onPointerDown={onPresetPointerDown}
+                      onPointerMove={onPresetPointerMove}
+                      onPointerUp={onPresetPointerUp}
+                      onPointerCancel={onPresetPointerCancel}
+                      onContextMenu={(e) => e.preventDefault()}
+                      style={{ touchAction: 'none' }}
+                    >
+                      {[-2, -1, 0, 1, 2].map((rel) => {
+                        const realIdx = presetWheel.getOffsetIdx(rel);
+                        if (realIdx == null) return null;
+                        const p = presetList[realIdx];
+                        if (!p) return null;
+                        const visualPos = rel * CARD_W + presetWheel.dragOffset;
+                        const distC = Math.abs(visualPos) / CARD_W;
+                        const scale = Math.max(0.5, 1 - distC * 0.09);
+                        const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
+                        const isCenter = distC < 0.5;
+                        const yOffset = isCenter ? Math.max(-10, Math.min(10, verticalDrag * 0.25)) : 0;
+                        return (
+                          <div key={`${p.id}-${rel}`}
+                            className={`rms-card ${isCenter ? 'rms-card-active' : ''} ${isCenter && pressing ? 'rms-card-pressing' : ''}`}
+                            style={{
+                              transform: `translate(${visualPos}px, ${yOffset}px) scale(${scale})`,
+                              opacity,
+                            }}
+                          >
+                            {isCenter && tickPulse > 0 && (
+                              <span key={`tk-${tickPulse}`} className="rms-card-tick" aria-hidden />
+                            )}
+                            {isCenter && pressing && (
+                              <svg className="rms-card-progress" viewBox={`0 0 ${CARD_INNER_W} ${CARD_INNER_H}`} preserveAspectRatio="none" aria-hidden>
+                                <rect
+                                  className="rms-progress-rect"
+                                  x="1.5" y="1.5"
+                                  width={CARD_INNER_W - 3} height={CARD_INNER_H - 3}
+                                  rx="14.5" ry="14.5"
+                                  fill="none"
+                                  stroke="var(--color-accent)"
+                                  strokeWidth="3"
+                                  vectorEffect="non-scaling-stroke"
+                                  pathLength="1"
+                                />
+                              </svg>
+                            )}
+                            <p className="rms-card-name">{p.name}</p>
+                            <p className="rms-card-kcal tabular">
+                              {Math.round(p.kcal)}<span className="text-[10px] text-text-3 ml-1">kcal</span>
+                            </p>
+                            {isCenter && (
+                              <p className="rms-card-macro tabular">
+                                <span style={{ color: '#c8ff00' }}>P {Math.round(p.protein_g)}</span>
+                                <span className="opacity-50 mx-1.5">·</span>
+                                <span style={{ color: '#f5a623' }}>C {Math.round(p.carb_g)}</span>
+                                <span className="opacity-50 mx-1.5">·</span>
+                                <span style={{ color: '#a486f4' }}>F {Math.round(p.fat_g)}</span>
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* page dots */}
+              {presetList.length > 0 && (
+                <div className="flex-shrink-0 rms-pager-wrap"
+                  onPointerDown={onDotsPointerDown}
+                  onPointerMove={onDotsPointerMove}
+                  onPointerUp={onDotsPointerUp}
+                  onPointerCancel={onDotsPointerUp}
+                  style={{ touchAction: 'none' }}
+                >
+                  <div className="rms-pager">
+                    {Array.from({ length: dotsToShow }).map((_, k) => (
+                      <span key={k} className={`rms-pdot ${k === activeDot ? 'rms-pdot-active' : ''}`} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 操作提示 */}
+              <p className="flex-shrink-0 rms-action-hint">
+                {recordingId
+                  ? <span className="text-accent">recording…</span>
+                  : currentPreset
+                  ? <>長按卡片<span className="text-accent">記錄</span>　·　↑刪除　·　↓編輯</>
+                  : '滑動選 preset · 點 ＋ 新增'}
+              </p>
+            </>
+          )}
+
+          {view === 'create' && (
+            <div className="flex-1 px-5 pb-5 pt-2 min-h-0 overflow-y-auto">
+              <MealPresetForm
+                busy={presetBusy}
+                duplicateError={duplicatePresetName}
+                onClearDuplicate={onClearDuplicatePresetName}
+                onSubmit={async (input) => {
+                  const ok = await onCreatePreset(input);
+                  if (ok) setView('list');
+                }}
+                onCancel={() => { onClearDuplicatePresetName(); setView('list'); }}
+              />
+            </div>
+          )}
+
+          {view === 'edit' && currentPreset && (
+            <div className="flex-1 px-5 pb-5 pt-2 min-h-0 overflow-y-auto">
+              <MealPresetForm
+                busy={presetBusy}
+                duplicateError={duplicatePresetName}
+                onClearDuplicate={onClearDuplicatePresetName}
+                prefill={{
+                  name: currentPreset.name,
+                  kcal: currentPreset.kcal,
+                  protein_g: currentPreset.protein_g,
+                  carb_g: currentPreset.carb_g,
+                  fat_g: currentPreset.fat_g,
+                  fiber_g: currentPreset.fiber_g,
+                }}
+                onSubmit={async (input) => {
+                  const ok = await onUpdatePreset(currentPreset.id, input);
+                  if (ok) setView('list');
+                }}
+                onCancel={() => { onClearDuplicatePresetName(); setView('list'); }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <Dialog
+        open={delOpen}
+        title="刪除這個 preset？"
+        body={currentPreset ? <span>將永久移除「<span className="text-text font-medium">{currentPreset.name}</span>」。</span> : null}
+        confirmText="刪除"
+        variant="danger"
+        busy={deleteBusy}
+        onCancel={deleteBusy ? undefined : () => setDelOpen(false)}
+        onConfirm={async () => {
+          if (!currentPreset) { setDelOpen(false); return; }
+          setDeleteBusy(true);
+          try {
+            await onDeletePreset(currentPreset.id);
+            setDelOpen(false);
+          } finally {
+            setDeleteBusy(false);
+          }
+        }}
+      />
+
+      <style>{styles}</style>
+    </>
+  );
+}
+
+const styles = `
+@keyframes rms-glow-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.6; }
+}
+@keyframes rms-progress-fill {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes rms-tick-pulse {
+  0% {
+    box-shadow: inset 0 0 0 2px rgba(200,255,0,0.85), 0 0 22px rgba(200,255,0,0.55);
+    background: rgba(200,255,0,0.07);
+  }
+  100% {
+    box-shadow: inset 0 0 0 0 rgba(200,255,0,0), 0 0 0 rgba(200,255,0,0);
+    background: rgba(200,255,0,0);
+  }
+}
+
+.rms-sheet {
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, #12121a 0%, #0a0a10 100%);
+  border-top: 1px solid rgba(200,255,0,0.45);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  box-shadow: 0 -16px 48px -12px rgba(0,0,0,0.6);
+  overflow: hidden;
+  will-change: transform;
+}
+.rms-glow {
+  position: absolute;
+  left: 50%; top: -1px;
+  transform: translateX(-50%);
+  width: 60%; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+  opacity: 0.5;
+  pointer-events: none;
+  animation: rms-glow-pulse 2.4s ease-in-out infinite;
+}
+
+.rms-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px 8px;
+  user-select: none;
+  cursor: grab;
+}
+.rms-header:active { cursor: grabbing; }
+.rms-header-left { pointer-events: none; }
+.rms-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  line-height: 1;
+  color: var(--color-text);
+}
+.rms-icon-btn {
+  width: 32px; height: 32px;
+  background: rgba(28,28,34,0.7);
+  border: 1px solid rgba(200,255,0,0.25);
+  border-radius: 10px;
+  color: var(--color-accent);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.rms-icon-btn:active { transform: scale(0.9); border-color: var(--color-accent); background: rgba(200,255,0,0.1); }
+
+.rms-mode-strip {
+  position: relative;
+  height: 56px;
+  margin: 0 0 4px;
+  overflow: hidden;
+  user-select: none;
+}
+.rms-mode-mask-l, .rms-mode-mask-r {
+  position: absolute; top: 0; bottom: 0; width: 50px;
+  pointer-events: none; z-index: 2;
+}
+.rms-mode-mask-l { left: 0; background: linear-gradient(90deg, #12121a 0%, transparent 100%); }
+.rms-mode-mask-r { right: 0; background: linear-gradient(-90deg, #12121a 0%, transparent 100%); }
+.rms-mode-track {
+  position: absolute;
+  left: 0; right: 0; top: 0; bottom: 8px;
+  cursor: grab;
+}
+.rms-mode-track:active { cursor: grabbing; }
+.rms-mode-cell {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: ${MODE_W - 14}px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-3);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 4px;
+  padding: 4px;
+  font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
+  cursor: pointer;
+  will-change: transform, opacity;
+  transition: color 0.22s;
+}
+.rms-mode-label {
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+.rms-mode-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  line-height: 1;
+  transition: opacity 0.22s, letter-spacing 0.22s;
+}
+.rms-mode-cell-active { color: var(--color-accent); }
+.rms-mode-cell-active .rms-mode-label { font-weight: 600; }
+.rms-mode-cell-active .rms-mode-sub { opacity: 0.9; letter-spacing: 0.28em; }
+.rms-mode-underline {
+  position: absolute;
+  left: 50%; bottom: 4px;
+  width: 28px; height: 2px;
+  background: var(--color-accent);
+  border-radius: 999px;
+  box-shadow: 0 0 8px rgba(200,255,0,0.65);
+  pointer-events: none;
+  z-index: 3;
+  will-change: transform;
+}
+
+.rms-cover-wrap {
+  position: relative;
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 138px;
+}
+.rms-cover-mask-l, .rms-cover-mask-r {
+  position: absolute; top: 0; bottom: 0; width: 70px;
+  pointer-events: none; z-index: 3;
+}
+.rms-cover-mask-l { left: 0; background: linear-gradient(90deg, #0e0e15 0%, rgba(14,14,21,0.6) 60%, transparent 100%); }
+.rms-cover-mask-r { right: 0; background: linear-gradient(-90deg, #0e0e15 0%, rgba(14,14,21,0.6) 60%, transparent 100%); }
+.rms-cover-track {
+  position: relative;
+  width: ${CARD_W}px;
+  height: 150px;
+  cursor: grab;
+}
+.rms-cover-track:active { cursor: grabbing; }
+.rms-card {
+  position: absolute;
+  left: 0; top: 50%;
+  width: ${CARD_INNER_W}px;
+  height: ${CARD_INNER_H}px;
+  margin-top: -${CARD_INNER_H / 2}px;
+  background: linear-gradient(180deg, rgba(28,28,36,0.7) 0%, rgba(18,18,24,0.7) 100%);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 16px;
+  display: flex; flex-direction: column;
+  justify-content: center; align-items: center;
+  padding: 10px;
+  font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
+  will-change: transform, opacity;
+  backdrop-filter: blur(6px);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.rms-card-name {
+  font-size: 16px;
+  color: var(--color-text);
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+.rms-card-kcal {
+  font-size: 20px;
+  color: var(--color-text-2);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  margin-top: 5px;
+}
+.rms-card-macro {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  margin-top: 6px;
+  letter-spacing: 0.04em;
+}
+.rms-card-active {
+  background: linear-gradient(180deg, rgba(36,40,24,0.85) 0%, rgba(20,22,18,0.95) 100%);
+  border-color: rgba(200,255,0,0.55);
+  box-shadow: 0 14px 32px -12px rgba(0,0,0,0.7), 0 0 28px rgba(200,255,0,0.18), inset 0 1px 0 rgba(200,255,0,0.12);
+}
+.rms-card-active .rms-card-name { color: var(--color-accent); font-size: 18px; }
+.rms-card-active .rms-card-kcal { color: var(--color-accent); font-size: 24px; }
+.rms-card-pressing {
+  border-color: rgba(200,255,0,0.8);
+  transform-origin: center;
+}
+
+.rms-card-tick {
+  position: absolute; inset: 0;
+  border-radius: 16px;
+  pointer-events: none;
+  animation: rms-tick-pulse 0.18s ease-out forwards;
+}
+
+.rms-card-progress {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 2;
+}
+.rms-progress-rect {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: rms-progress-fill ${LONG_PRESS_MS}ms linear forwards;
+  filter: drop-shadow(0 0 6px rgba(200,255,0,0.5));
+}
+
+.rms-pager-wrap {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center;
+  padding: 16px 40px;
+  margin: 4px 12px 0;
+  min-height: 44px;
+  user-select: none;
+  cursor: grab;
+  background: rgba(200,255,0,0.03);
+  border: 1px solid rgba(200,255,0,0.1);
+  border-radius: 16px;
+  transition: background 0.2s, border-color 0.2s, border-style 0s;
+}
+.rms-pager-wrap:active {
+  cursor: grabbing;
+  background: rgba(200,255,0,0.1);
+  border-color: rgba(200,255,0,0.45);
+  border-style: dashed;
+}
+.rms-pager {
+  display: flex; gap: 8px; align-items: center;
+  padding: 2px 0;
+}
+.rms-pdot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.18);
+  transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+.rms-pdot-active {
+  background: var(--color-accent);
+  transform: scale(1.4);
+  box-shadow: 0 0 8px rgba(200,255,0,0.7);
+}
+
+.rms-action-hint {
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--color-text-3);
+  padding: 6px 16px 4px;
+  margin: 0;
+  user-select: none;
+}
+
+.rms-empty {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: var(--color-accent);
+  gap: 8px;
+}
+.rms-empty-cta {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  box-shadow: 0 6px 16px -4px rgba(200,255,0,0.4);
+}
+`;

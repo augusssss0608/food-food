@@ -5,7 +5,7 @@ import { type MealPreview } from '@/components/meal-preview-card';
 import { PushEnableButton } from '@/components/push-enable-button';
 import { TodaySummary } from '@/components/today-summary';
 import { TodayMeals, type TodayMeal } from '@/components/today-meals';
-import { AddMealSheet } from '@/components/add-meal-sheet';
+import { RecordMealSheet } from '@/components/record-meal-sheet';
 import { WorkoutDayToggle } from '@/components/workout-day-toggle';
 import { PageHeader } from '@/components/page-header';
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
@@ -275,7 +275,7 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
     }
   }
 
-  async function pickCustomPreset(preset: UserMealPreset) {
+  async function pickCustomPreset(preset: UserMealPreset): Promise<boolean> {
     setPresetBusy(preset.id);
     const meal = await submitMealPost({
       ate_at: new Date().toISOString(),
@@ -287,7 +287,9 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
       patchMeals((prev) => [meal, ...prev]);
       toast.success('已記錄', preset.name);
       setAddMealOpen(false);
+      return true;
     }
+    return false;
   }
 
   // 新建自定义菜单（AddMealSheet 「+」/「加入自定義菜單」共用）。
@@ -525,26 +527,19 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
         </section>
       </PageShell>
 
-      {/* 「+」打開的新增餐面板 */}
-      <AddMealSheet
+      {/* 「+」打開的新增餐面板（cover-flow 風格） */}
+      <RecordMealSheet
         open={addMealOpen}
         onClose={() => { setAddMealOpen(false); setDuplicatePresetName(false); }}
         customPresets={customPresets}
-        recentPhotoMeals={recentPhotoMeals}
-        presetBusy={presetBusy}
+        recordingId={presetBusy}
         onPickCustomPreset={pickCustomPreset}
-        createPresetBusy={createPresetBusy}
+        presetBusy={createPresetBusy}
         duplicatePresetName={duplicatePresetName}
         onClearDuplicatePresetName={() => setDuplicatePresetName(false)}
         onCreatePreset={createPreset}
         onUpdatePreset={updatePreset}
         onDeletePreset={deletePreset}
-        mealExtractBusy={mealExtractBusy}
-        onUploadMealPhoto={uploadMealPhoto}
-        mealPreview={mealPreview}
-        onConfirmMeal={confirmMeal}
-        onCancelMealPreview={() => setMealPreview(null)}
-        confirmMealBusy={confirmMealBusy}
       />
     </>
   );
