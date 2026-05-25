@@ -326,7 +326,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
               style={{ touchAction: 'none' }}
             >
               <div className="twh-header-left">
-                <p className="display-roman text-[22px] leading-none">
+                <p className="display-roman text-[20px] leading-none">
                   {view === 'list' ? '記一筆' : view === 'create' ? '新增' : '編輯'}
                 </p>
               </div>
@@ -454,8 +454,8 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                           const scale = Math.max(0.5, 1 - distC * 0.09);
                           const opacity = Math.max(0, Math.min(1, 1 - distC * 0.55));
                           const isCenter = distC < 0.5;
-                          // 卡片垂直位移 clamp 在 cover-wrap 自己的範圍（被 overflow:hidden 裁）
-                          const yOffset = isCenter ? Math.max(-100, Math.min(100, verticalDrag)) : 0;
+                          // 卡片垂直視覺位移：0.5 倍跟手 + clamp ±56，避免在小高度被裁成半張
+                          const yOffset = isCenter ? Math.max(-56, Math.min(56, verticalDrag * 0.5)) : 0;
                           return (
                             <div key={`${p.id}-${rel}`}
                               className={`twh-card ${isCenter ? 'twh-card-active' : ''} ${isCenter && pressing ? 'twh-card-pressing' : ''}`}
@@ -875,7 +875,7 @@ const styles = `
 .twh-swipe-hint-bottom { bottom: 6px; flex-direction: column-reverse; }
 .twh-swipe-hint-bottom .twh-swipe-hint-arrow { margin-top: 2px; margin-bottom: 0; }
 
-/* ========== page dots（可滑动，整條塗 lime 提示 hit area） ========== */
+/* ========== page dots（可滑动，平時低可見、拖動時加亮） ========== */
 .twh-pager-wrap {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center;
@@ -883,15 +883,16 @@ const styles = `
   margin: 6px 14px 0;
   user-select: none;
   cursor: grab;
-  background: rgba(200,255,0,0.05);
-  border: 1px dashed rgba(200,255,0,0.28);
+  background: rgba(200,255,0,0.03);
+  border: 1px solid rgba(200,255,0,0.1);
   border-radius: 16px;
-  transition: background 0.2s, border-color 0.2s;
+  transition: background 0.2s, border-color 0.2s, border-style 0s;
 }
 .twh-pager-wrap:active {
   cursor: grabbing;
   background: rgba(200,255,0,0.1);
-  border-color: rgba(200,255,0,0.5);
+  border-color: rgba(200,255,0,0.45);
+  border-style: dashed;
 }
 .twh-pager {
   display: flex; gap: 8px; align-items: center;
