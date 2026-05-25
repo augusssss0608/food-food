@@ -510,7 +510,7 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
         </section>
       </PageShell>
 
-      {/* 「+」/ 右下角 knob 打開的新增餐面板（cover-flow 風格） */}
+      {/* 右下角 knob 打開的新增餐面板（cover-flow 風格） */}
       <RecordMealSheet
         open={addMealOpen}
         onOpen={tryOpenAddMeal}
@@ -524,6 +524,12 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
         onCreatePreset={createPreset}
         onUpdatePreset={updatePreset}
         onDeletePreset={deletePreset}
+        mealExtractBusy={mealExtractBusy}
+        mealPreview={mealPreview}
+        onUploadMealPhoto={uploadMealPhoto}
+        onConfirmMeal={confirmMeal}
+        onCancelMealPreview={() => setMealPreview(null)}
+        confirmMealBusy={confirmMealBusy}
       />
     </>
   );

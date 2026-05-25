@@ -4,6 +4,9 @@ import type { UserMealPreset } from '@/lib/home-snapshot';
 import { useHWheelPicker } from '@/lib/h-wheel-picker';
 import { MealPresetForm, type MealPresetFormInput } from '@/components/meal-preset-form';
 import { Dialog } from '@/components/ui/dialog';
+import { PhotoInput } from '@/components/photo-input';
+import { MealPreviewCard, type MealPreview } from '@/components/meal-preview-card';
+import { Spinner } from '@/components/ui/spinner';
 
 const MODE_W = 116;
 const CARD_W = 200;
@@ -50,6 +53,13 @@ export interface RecordMealSheetProps {
   onCreatePreset: (input: MealPresetFormInput) => Promise<boolean>;
   onUpdatePreset: (id: string, input: MealPresetFormInput) => Promise<boolean>;
   onDeletePreset: (id: string) => Promise<boolean>;
+  // 拍照模式相關
+  mealExtractBusy: boolean;
+  mealPreview: MealPreview | null;
+  onUploadMealPhoto: (b64: string) => void | Promise<void>;
+  onConfirmMeal: (p: MealPreview, satiety: number | undefined) => void | Promise<void>;
+  onCancelMealPreview: () => void;
+  confirmMealBusy: boolean;
 }
 
 export function RecordMealSheet({
@@ -65,6 +75,12 @@ export function RecordMealSheet({
   onCreatePreset,
   onUpdatePreset,
   onDeletePreset,
+  mealExtractBusy,
+  mealPreview,
+  onUploadMealPhoto,
+  onConfirmMeal,
+  onCancelMealPreview,
+  confirmMealBusy,
 }: RecordMealSheetProps) {
   const [view, setView] = useState<SheetView>('list');
   const [delOpen, setDelOpen] = useState(false);
@@ -327,10 +343,8 @@ export function RecordMealSheet({
     ? presetWheel.idx
     : Math.round((presetWheel.idx * (maxDots - 1)) / Math.max(1, total - 1));
 
-  // sheet 高度根據 view：list 矮（cover-flow 緊湊），create/edit 剛好裝下表單不 scroll
-  const sheetHeight = view === 'list'
-    ? 'calc(clamp(360px, 44dvh, 420px) + env(safe-area-inset-bottom))'
-    : 'calc(clamp(460px, 58dvh, 520px) + env(safe-area-inset-bottom))';
+  // sheet 高度統一：list / create / edit 都用同高，避免切換閃；剛好裝下表單 6 字段
+  const sheetHeight = 'calc(clamp(440px, 56dvh, 520px) + env(safe-area-inset-bottom))';
 
   return (
     <>
@@ -463,17 +477,34 @@ export function RecordMealSheet({
                 />
               </div>
 
-              {/* preset cover-flow */}
+              {/* preset cover-flow / camera */}
               <div className="flex-1 rms-cover-wrap min-h-0 relative">
                 {currentMode === 'camera' ? (
-                  <div className="rms-camera">
-                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
-                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                      <circle cx="12" cy="13" r="4" />
-                    </svg>
-                    <p className="text-[11px] font-mono uppercase tracking-wider text-text-3 mt-1">camera</p>
-                    <p className="text-[10px] text-text-4 mt-1">即將上線</p>
-                  </div>
+                  mealPreview ? (
+                    <div className="absolute inset-0 px-5 pb-3 overflow-y-auto">
+                      <MealPreviewCard
+                        initial={mealPreview}
+                        onConfirm={async (edited, satiety) => {
+                          await onConfirmMeal(edited, satiety);
+                        }}
+                        onCancel={onCancelMealPreview}
+                        busy={confirmMealBusy}
+                      />
+                    </div>
+                  ) : mealExtractBusy ? (
+                    <div className="rms-camera">
+                      <Spinner size={28} className="text-accent" />
+                      <p className="text-[11px] font-mono uppercase tracking-wider text-text-3 mt-2">analyzing…</p>
+                    </div>
+                  ) : (
+                    <div className="rms-camera">
+                      <PhotoInput
+                        onPicked={(b64) => { void onUploadMealPhoto(b64); }}
+                        label="拍照 / 選圖"
+                      />
+                      <p className="text-[10px] font-mono uppercase tracking-wider text-text-4 mt-2">AI 自動識別熱量 / 營養素</p>
+                    </div>
+                  )
                 ) : presetList.length === 0 ? (
                   <div className="rms-empty">
                     <p className="text-[13px] text-text-3 font-mono">no preset</p>
