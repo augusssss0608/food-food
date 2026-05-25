@@ -10,7 +10,7 @@ import type { HomeSnapshot } from '@/lib/home-snapshot';
 const MODE_W = 116;
 const CARD_W = 200;
 const CARD_INNER_W = CARD_W - 16;
-const CARD_INNER_H = 118;
+const CARD_INNER_H = 96;
 const PRESET_AXIS_LOCK = 8;
 const VERTICAL_TRIGGER = 60;
 const CLOSE_DRAG_TRIGGER = 90;
@@ -473,7 +473,7 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                                     className="twh-progress-rect"
                                     x="1.5" y="1.5"
                                     width={CARD_INNER_W - 3} height={CARD_INNER_H - 3}
-                                    rx="14.5" ry="14.5"
+                                    rx="13" ry="13"
                                     fill="none"
                                     stroke="var(--color-accent)"
                                     strokeWidth="3"
@@ -776,7 +776,7 @@ const styles = `
 .twh-cover-track {
   position: relative;
   width: ${CARD_W}px;
-  height: 130px;
+  height: 110px;
   cursor: grab;
 }
 .twh-cover-track:active { cursor: grabbing; }
@@ -838,7 +838,7 @@ const styles = `
 /* detent 视觉脉冲 */
 .twh-card-tick {
   position: absolute; inset: 0;
-  border-radius: 16px;
+  border-radius: 14px;
   pointer-events: none;
   animation: twh-tick-pulse 0.18s ease-out forwards;
 }
@@ -887,13 +887,13 @@ const styles = `
 .twh-pager-wrap {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center;
-  padding: 22px 40px;
-  margin: 8px 12px 0;
+  padding: 16px 40px;
+  margin: 6px 12px 0;
   user-select: none;
   cursor: grab;
   background: rgba(200,255,0,0.03);
   border: 1px solid rgba(200,255,0,0.1);
-  border-radius: 18px;
+  border-radius: 16px;
   transition: background 0.2s, border-color 0.2s, border-style 0s;
 }
 .twh-pager-wrap:active {
