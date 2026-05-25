@@ -788,10 +788,10 @@ const styles = `
   margin-top: -${CARD_INNER_H / 2}px;
   background: linear-gradient(180deg, rgba(28,28,36,0.7) 0%, rgba(18,18,24,0.7) 100%);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 16px;
+  border-radius: 14px;
   display: flex; flex-direction: column;
   justify-content: center; align-items: center;
-  padding: 10px;
+  padding: 8px;
   font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
   will-change: transform, opacity;
   backdrop-filter: blur(6px);
@@ -800,7 +800,7 @@ const styles = `
   -webkit-touch-callout: none;
 }
 .twh-card-name {
-  font-size: 16px;
+  font-size: 15px;
   color: var(--color-text);
   font-weight: 600;
   text-align: center;
@@ -811,25 +811,25 @@ const styles = `
   width: 100%;
 }
 .twh-card-kcal {
-  font-size: 20px;
+  font-size: 18px;
   color: var(--color-text-2);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  margin-top: 5px;
+  margin-top: 4px;
 }
 .twh-card-macro {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px;
-  margin-top: 6px;
+  font-size: 9px;
+  margin-top: 5px;
   letter-spacing: 0.04em;
 }
 .twh-card-active {
   background: linear-gradient(180deg, rgba(36,40,24,0.85) 0%, rgba(20,22,18,0.95) 100%);
   border-color: rgba(200,255,0,0.55);
-  box-shadow: 0 14px 32px -12px rgba(0,0,0,0.7), 0 0 28px rgba(200,255,0,0.18), inset 0 1px 0 rgba(200,255,0,0.12);
+  box-shadow: 0 12px 28px -12px rgba(0,0,0,0.7), 0 0 22px rgba(200,255,0,0.18), inset 0 1px 0 rgba(200,255,0,0.12);
 }
-.twh-card-active .twh-card-name { color: var(--color-accent); font-size: 18px; }
-.twh-card-active .twh-card-kcal { color: var(--color-accent); font-size: 24px; }
+.twh-card-active .twh-card-name { color: var(--color-accent); font-size: 16px; }
+.twh-card-active .twh-card-kcal { color: var(--color-accent); font-size: 20px; }
 .twh-card-pressing {
   border-color: rgba(200,255,0,0.8);
   transform-origin: center;
