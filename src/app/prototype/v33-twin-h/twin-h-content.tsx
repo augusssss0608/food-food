@@ -283,11 +283,6 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
     ? presetWheel.idx
     : Math.round((presetWheel.idx * (maxDots - 1)) / Math.max(1, total - 1));
 
-  const vDragAbs = Math.abs(verticalDrag);
-  const showDeleteHint = verticalDrag < -PRESET_AXIS_LOCK;
-  const showEditHint = verticalDrag > PRESET_AXIS_LOCK;
-  const verticalIntensity = Math.min(1, vDragAbs / VERTICAL_TRIGGER);
-
   return (
     <PrototypeShell title="Twin Horizontal">
       <RealHomeShell api={api} rightAction={null} />
@@ -427,19 +422,6 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                       <div className="twh-cover-mask-l" aria-hidden />
                       <div className="twh-cover-mask-r" aria-hidden />
 
-                      <div className={`twh-swipe-hint twh-swipe-hint-top ${showDeleteHint ? 'twh-swipe-hint-on' : ''}`}
-                        style={{ opacity: showDeleteHint ? verticalIntensity : 0 }}
-                      >
-                        <span className="twh-swipe-hint-arrow">↑</span>
-                        <span>刪除</span>
-                      </div>
-                      <div className={`twh-swipe-hint twh-swipe-hint-bottom ${showEditHint ? 'twh-swipe-hint-on' : ''}`}
-                        style={{ opacity: showEditHint ? verticalIntensity : 0 }}
-                      >
-                        <span className="twh-swipe-hint-arrow">↓</span>
-                        <span>編輯</span>
-                      </div>
-
                       <div className="twh-cover-track"
                         onPointerDown={onPresetPointerDown}
                         onPointerMove={onPresetPointerMove}
@@ -525,17 +507,15 @@ export function TwinHContent({ initialSnapshot }: { initialSnapshot: HomeSnapsho
                 )}
 
                 {/* 操作提示（替代 record button） */}
-                <div className="flex-shrink-0 px-5 pb-1 pt-0">
-                  <p className="twh-action-hint">
-                    {api.recordingId
-                      ? <span className="text-accent">recording…</span>
-                      : currentMode === 'camera'
-                      ? '點 ＋ 新增 · 下滑關閉'
-                      : currentPreset
-                      ? <>長按卡片<span className="text-accent">記錄</span>　·　↑刪除　·　↓編輯</>
-                      : '滑動選 preset · 點 ＋ 新增'}
-                  </p>
-                </div>
+                <p className="flex-shrink-0 twh-action-hint">
+                  {api.recordingId
+                    ? <span className="text-accent">recording…</span>
+                    : currentMode === 'camera'
+                    ? '點 ＋ 新增 · 下滑關閉'
+                    : currentPreset
+                    ? <>長按卡片<span className="text-accent">記錄</span>　·　↑刪除　·　↓編輯</>
+                    : '滑動選 preset · 點 ＋ 新增'}
+                </p>
               </>
             )}
 
@@ -865,29 +845,6 @@ const styles = `
   filter: drop-shadow(0 0 6px rgba(200,255,0,0.5));
 }
 
-/* ========== swipe hint ========== */
-.twh-swipe-hint {
-  position: absolute;
-  left: 50%; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center;
-  font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  color: var(--color-accent);
-  pointer-events: none;
-  z-index: 4;
-  transition: opacity 0.12s;
-}
-.twh-swipe-hint-arrow {
-  font-size: 18px;
-  line-height: 1;
-  margin-bottom: 2px;
-  text-shadow: 0 0 8px rgba(200,255,0,0.6);
-}
-.twh-swipe-hint-top { top: 6px; }
-.twh-swipe-hint-bottom { bottom: 6px; flex-direction: column-reverse; }
-.twh-swipe-hint-bottom .twh-swipe-hint-arrow { margin-top: 2px; margin-bottom: 0; }
-
 /* ========== page dots（可滑动，平時低可見、拖動時加亮） ========== */
 .twh-pager-wrap {
   display: flex; flex-direction: column; align-items: center;
@@ -930,7 +887,8 @@ const styles = `
   font-size: 10.5px;
   letter-spacing: 0.06em;
   color: var(--color-text-3);
-  padding: 4px 0 0;
+  padding: 6px 16px 4px;
+  margin: 0;
   user-select: none;
 }
 
