@@ -9,7 +9,7 @@ import type {
   MonthlyContext,
 } from '@/lib/types/ai';
 
-export type ProviderName = 'anthropic_api' | 'claude_agent_sdk' | 'mock';
+export type ProviderName = 'anthropic_api' | 'claude_agent_sdk' | 'gemini_api' | 'mock';
 
 export type AiCallKind =
   | 'meal_photo'

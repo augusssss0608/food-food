@@ -1,5 +1,6 @@
 import type { AiProvider, ProviderName } from './interface';
 import { ClaudeApiProvider } from './claude-api';
+import { GeminiProvider } from './gemini-api';
 import { SandboxAgentSdkProvider } from './sandbox-agent';
 import { MockAiProvider } from './mock';
 
@@ -13,6 +14,8 @@ export function instantiate(name: ProviderName): AiProvider {
   switch (name) {
     case 'anthropic_api':
       return new ClaudeApiProvider({ apiKey: requireEnv('ANTHROPIC_API_KEY') });
+    case 'gemini_api':
+      return new GeminiProvider({ apiKey: requireEnv('GEMINI_API_KEY') });
     case 'claude_agent_sdk':
       return new SandboxAgentSdkProvider({
         snapshotId: requireEnv('CLAUDE_AGENT_SNAPSHOT_ID'),
