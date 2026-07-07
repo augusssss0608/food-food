@@ -174,6 +174,8 @@ export function RecordMealSheet({
     );
   }, [customPresets, currentMode, query, searchField]);
   const presetWheel = useHWheelPicker(presetList.length, CARD_W, {
+    // 只剩 1 张（如搜索命中唯一）时关掉循环，否则会绕回同一张 + 无限滑
+    cyclic: presetList.length > 1,
     maxStep: 1,
     onTick: () => setTickPulse((t) => t + 1),
   });
