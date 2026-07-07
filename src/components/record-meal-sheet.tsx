@@ -525,7 +525,7 @@ export function RecordMealSheet({
 
       {/* sheet 始终 mount，靠 transform+transition 控制；open=false 时 translateY(100%) 移出屏幕 */}
       <div className="fixed inset-0 z-[80]" style={{ pointerEvents: open ? 'auto' : 'none' }}>
-        <div className="absolute inset-0 bg-ink/85 backdrop-blur-md"
+        <div className="absolute inset-0"
           onClick={() => onClose()}
           style={{
             opacity: open ? 1 : 0,
