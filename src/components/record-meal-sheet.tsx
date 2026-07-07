@@ -651,6 +651,18 @@ export function RecordMealSheet({
               {/* 搜索行：按下拉选中的字段（热量 / 餐名）过滤（拍照 mode 不显示） */}
               {!currentMode.isCamera && (
                 <div className="flex-shrink-0 rms-search-row">
+                  <select
+                    className="rms-search-cat"
+                    value={searchField}
+                    onChange={(e) => {
+                      setSearchField(e.target.value as 'kcal' | 'name');
+                      setQuery('');
+                    }}
+                    aria-label="选择搜索字段"
+                  >
+                    <option value="kcal">热量</option>
+                    <option value="name">餐名</option>
+                  </select>
                   <div className="rms-search-box">
                     <span className="rms-search-icon" aria-hidden>⌕</span>
                     <input
@@ -672,18 +684,6 @@ export function RecordMealSheet({
                       >×</button>
                     )}
                   </div>
-                  <select
-                    className="rms-search-cat"
-                    value={searchField}
-                    onChange={(e) => {
-                      setSearchField(e.target.value as 'kcal' | 'name');
-                      setQuery('');
-                    }}
-                    aria-label="选择搜索字段"
-                  >
-                    <option value="kcal">热量</option>
-                    <option value="name">餐名</option>
-                  </select>
                 </div>
               )}
 
