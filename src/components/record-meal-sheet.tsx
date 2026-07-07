@@ -135,6 +135,9 @@ export function RecordMealSheet({
   const [view, setView] = useState<SheetView>('list');
   const [delOpen, setDelOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  // 搜索关键字 + 搜索字段（下拉切「餐名 / 热量」，只按选中的那个字段过滤当前类别的卡片）
+  const [query, setQuery] = useState('');
+  const [searchField, setSearchField] = useState<'kcal' | 'name'>('kcal');
 
   // —— camera: 內嵌 file input + 圖片預處理 ——
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -159,15 +162,34 @@ export function RecordMealSheet({
   const currentMode = modes[safeModeIdx] ?? CAMERA_MODE;
 
   const [tickPulse, setTickPulse] = useState(0);
-  const presetList = useMemo(
-    () => presetsForMode(customPresets, currentMode),
-    [customPresets, currentMode],
-  );
+  const presetList = useMemo(() => {
+    const base = presetsForMode(customPresets, currentMode);
+    const q = query.trim().toLowerCase();
+    if (!q) return base;
+    // 按下拉选中的字段过滤：热量做整数子串匹配（输「58」命中 580~589 / 588），餐名大小写不敏感
+    return base.filter((p) =>
+      searchField === 'kcal'
+        ? String(Math.round(p.kcal)).includes(q)
+        : p.name.toLowerCase().includes(q),
+    );
+  }, [customPresets, currentMode, query, searchField]);
   const presetWheel = useHWheelPicker(presetList.length, CARD_W, {
     maxStep: 1,
     onTick: () => setTickPulse((t) => t + 1),
   });
   const currentPreset = presetList[presetWheel.idx];
+
+  // 过滤集变化（换类别 / 改搜索词 / 换搜索字段）后把卡片轮复位到第一张，避免 idx 指向越界
+  const presetSnapToRef = useRef(presetWheel.snapTo);
+  presetSnapToRef.current = presetWheel.snapTo;
+  useEffect(() => {
+    presetSnapToRef.current(0, { animate: false, haptic: false });
+  }, [query, currentMode.key, searchField]);
+
+  // 切换类别时清空搜索词，避免带着上一类别的关键字进新类别
+  useEffect(() => {
+    setQuery('');
+  }, [currentMode.key]);
 
   // —— 拍照 mode 下方「近期拍照」橫列：長按 → 詢問是否新增此餐為 preset ——
   const recentPhotoList = useMemo(
@@ -421,6 +443,7 @@ export function RecordMealSheet({
       setDragY(0);
       setCreatePrefill(undefined);
       setConvertPhoto(null);
+      setQuery('');
     }, 320);
     return () => window.clearTimeout(t);
   }, [open]);
@@ -623,6 +646,45 @@ export function RecordMealSheet({
                 />
               </div>
 
+              {/* 搜索行：按下拉选中的字段（热量 / 餐名）过滤（拍照 mode 不显示） */}
+              {!currentMode.isCamera && (
+                <div className="flex-shrink-0 rms-search-row">
+                  <div className="rms-search-box">
+                    <span className="rms-search-icon" aria-hidden>⌕</span>
+                    <input
+                      className="rms-search-input"
+                      type="text"
+                      inputMode={searchField === 'kcal' ? 'numeric' : 'text'}
+                      enterKeyHint="search"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={searchField === 'kcal' ? '输入热量' : '输入餐名'}
+                      aria-label={searchField === 'kcal' ? '搜索热量' : '搜索餐名'}
+                    />
+                    {query && (
+                      <button
+                        type="button"
+                        className="rms-search-clear"
+                        aria-label="清空搜索"
+                        onClick={() => setQuery('')}
+                      >×</button>
+                    )}
+                  </div>
+                  <select
+                    className="rms-search-cat"
+                    value={searchField}
+                    onChange={(e) => {
+                      setSearchField(e.target.value as 'kcal' | 'name');
+                      setQuery('');
+                    }}
+                    aria-label="选择搜索字段"
+                  >
+                    <option value="kcal">热量</option>
+                    <option value="name">餐名</option>
+                  </select>
+                </div>
+              )}
+
               {/* preset cover-flow / camera */}
               <div className="flex-1 rms-cover-wrap min-h-0 relative">
                 {currentMode.isCamera ? (
@@ -724,8 +786,12 @@ export function RecordMealSheet({
                   )
                 ) : presetList.length === 0 ? (
                   <div className="rms-empty">
-                    <p className="text-[13px] text-text-3 font-mono">no preset</p>
-                    <button onClick={() => { onClearDuplicatePresetName(); setView('create'); }} className="rms-empty-cta">＋ new</button>
+                    <p className="text-[13px] text-text-3 font-mono">{query.trim() ? 'no match' : 'no preset'}</p>
+                    {query.trim() ? (
+                      <button onClick={() => setQuery('')} className="rms-empty-cta">clear</button>
+                    ) : (
+                      <button onClick={() => { onClearDuplicatePresetName(); setView('create'); }} className="rms-empty-cta">＋ new</button>
+                    )}
                   </div>
                 ) : (
                   <>
@@ -1099,6 +1165,73 @@ const styles = `
   z-index: 3;
   will-change: transform;
 }
+
+.rms-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px;
+  margin: 0 0 6px;
+}
+.rms-search-box {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+.rms-search-icon {
+  position: absolute;
+  left: 10px;
+  font-size: 15px;
+  color: var(--color-text-3);
+  pointer-events: none;
+  line-height: 1;
+}
+.rms-search-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 30px 0 28px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 9px;
+  color: var(--color-text);
+  font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.18s, background 0.18s;
+}
+.rms-search-input::placeholder { color: var(--color-text-3); opacity: 0.7; }
+.rms-search-input:focus {
+  border-color: var(--color-accent);
+  background: rgba(255,255,255,0.07);
+}
+.rms-search-clear {
+  position: absolute;
+  right: 6px;
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 999px;
+  color: var(--color-text-2);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.rms-search-cat {
+  height: 34px;
+  max-width: 108px;
+  padding: 0 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 9px;
+  color: var(--color-text);
+  font-family: 'JetBrains Mono', 'Noto Sans CJK', sans-serif;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+.rms-search-cat:focus { border-color: var(--color-accent); }
 
 .rms-cover-wrap {
   position: relative;
