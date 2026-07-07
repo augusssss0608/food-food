@@ -28,7 +28,7 @@ import {
 import { AIError } from './errors';
 
 // 免费层 vision 模型；识餐 / 体测 OCR / 目标计算 / 建议统一用它
-const MODEL = 'gemini-3.1-flash-lite';
+const MODEL = 'gemini-3.5-flash';
 
 const RETRY_OPTS = { maxTransportAttempts: 4, maxSchemaRetries: 1 };
 
