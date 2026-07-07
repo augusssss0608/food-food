@@ -1173,7 +1173,7 @@ const styles = `
   align-items: center;
   gap: 8px;
   padding: 0 20px;
-  margin: 0 0 6px;
+  margin: 10px 0 6px;
 }
 .rms-search-box {
   position: relative;
