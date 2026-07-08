@@ -106,7 +106,7 @@ export interface RecordMealSheetProps {
   mealExtractBusy: boolean;
   mealPreview: MealPreview | null;
   onUploadMealPhoto: (b64: string) => void | Promise<void>;
-  onConfirmMeal: (p: MealPreview, satiety: number | undefined) => void | Promise<void>;
+  onConfirmMeal: (p: MealPreview, satiety: number | undefined, category: string) => void | Promise<void>;
   onCancelMealPreview: () => void;
   confirmMealBusy: boolean;
 }
@@ -694,8 +694,9 @@ export function RecordMealSheet({
                     <div className="absolute inset-0 px-5 pb-3 overflow-y-auto">
                       <MealPreviewCard
                         initial={mealPreview}
-                        onConfirm={async (edited, satiety) => {
-                          await onConfirmMeal(edited, satiety);
+                        existingCategories={existingCategories}
+                        onConfirm={async (edited, satiety, category) => {
+                          await onConfirmMeal(edited, satiety, category);
                         }}
                         onCancel={onCancelMealPreview}
                         busy={confirmMealBusy}

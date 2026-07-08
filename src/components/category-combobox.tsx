@@ -15,11 +15,13 @@ export function CategoryCombobox({
   onChange,
   options,
   disabled,
+  label = '類別（可選）',
 }: {
   value: string;
   onChange: (v: string) => void;
   options: string[];
   disabled?: boolean;
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -48,7 +50,7 @@ export function CategoryCombobox({
   return (
     <label className="block relative">
       <span className="block text-[11px] uppercase tracking-[0.14em] text-text-3 mb-1.5 font-medium">
-        類別（可選）
+        {label}
       </span>
       <div
         className={[

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { AiMetaChip } from './ai-meta-chip';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
+import { CategoryCombobox } from './category-combobox';
 import { InlineNumberInput } from './ui/inline-number-input';
 import { isEmptyNum } from './ui/number-input';
 import { useToast } from './ui/toast';
@@ -33,24 +34,30 @@ type Editable = Omit<MealPreview, 'kcal' | 'protein_g' | 'carb_g' | 'fat_g' | 'f
   & Record<NumKey, number | ''>;
 
 export function MealPreviewCard({
-  initial, onConfirm, onCancel, busy = false,
+  initial, existingCategories, onConfirm, onCancel, busy = false,
 }: {
   initial: MealPreview;
-  onConfirm: (edited: MealPreview, satiety: number | undefined) => void;
+  existingCategories: string[];
+  onConfirm: (edited: MealPreview, satiety: number | undefined, category: string) => void;
   onCancel: () => void;
   busy?: boolean;
 }) {
   const [data, setData] = useState<Editable>(initial);
+  const [category, setCategory] = useState('');
   const [satiety, setSatiety] = useState<number | undefined>(undefined);
   const toast = useToast();
 
   function handleConfirm() {
+    if (category.trim().length === 0) {
+      toast.error('請填寫類別', '類別為必填');
+      return;
+    }
     const empty = NUM_KEYS.find((k) => isEmptyNum(data[k.key]));
     if (empty) {
       toast.error('請填寫所有數值', `${empty.label} 不能為空`);
       return;
     }
-    onConfirm(data as MealPreview, satiety);
+    onConfirm(data as MealPreview, satiety, category.trim());
   }
 
   return (
@@ -66,6 +73,13 @@ export function MealPreviewCard({
       </div>
 
       <div className="px-5 py-4 space-y-3">
+        <CategoryCombobox
+          value={category}
+          onChange={setCategory}
+          options={existingCategories}
+          disabled={busy}
+          label="類別 *"
+        />
         {NUM_KEYS.map((k) => (
           <InlineNumberInput
             key={k.key}

@@ -395,7 +395,7 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
     }
   }
 
-  async function confirmMeal(p: MealPreview, satiety: number | undefined) {
+  async function confirmMeal(p: MealPreview, satiety: number | undefined, category: string) {
     setConfirmMealBusy(true);
     const meal = await submitMealPost({
       ate_at: new Date().toISOString(), source: 'photo_ai',
@@ -403,14 +403,27 @@ export function HomeContent({ initialSnapshot }: { initialSnapshot: HomeSnapshot
       carb_g: p.carb_g, fat_g: p.fat_g, fiber_g: p.fiber_g,
       ai_raw_json: { confidence: p.confidence }, satiety,
     });
-    setConfirmMealBusy(false);
     if (meal) {
       patchMeals((prev) => [meal, ...prev]);
       patchRecentPhotoMeals(meal);
+      // 類別必填：入庫同時把這道菜存進自定義菜單；同名（normalized）已存在則只記錄不重複加
+      const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+      const presetName = p.dish_name.trim().slice(0, 50);
+      if (!customPresets.some((x) => norm(x.name) === norm(presetName))) {
+        const ok = await createPreset({
+          name: presetName, category,
+          kcal: p.kcal, protein_g: p.protein_g, carb_g: p.carb_g,
+          fat_g: p.fat_g, fiber_g: p.fiber_g,
+          source_meal_id: meal.id,
+        });
+        // 409（并发 / normalize 差异撞同名）对本流程等同「菜單已有」，清掉表單用的重名标记
+        if (!ok) setDuplicatePresetName(false);
+      }
       setMealPreview(null);
       toast.success('已入庫', p.dish_name);
       setAddMealOpen(false);
     }
+    setConfirmMealBusy(false);
   }
 
   // 子層上拋：刪除 / 編輯成功
