@@ -126,7 +126,7 @@ export async function exhaustAiBudget(usageDate: string, capCents = 50): Promise
 }
 
 /**
- * 给 budget 留余地，让 cron 跑完整 lookback（8 weekly × 8c + 5 monthly × 20c = 164c）不被 cap=50 拦。
+ * 给 budget 留余地，让 cron 跑完整 lookback（8 weekly × 8c = 64c）不被 cap=50 拦。
  * 通过预 seed 大负数 estimated_cost_cents 实现（service_role 不能改 app_config，只能改 ai_budget_daily）。
  */
 export async function relaxAiBudgetForCronRun(): Promise<void> {

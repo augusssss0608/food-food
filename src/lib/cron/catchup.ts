@@ -17,7 +17,6 @@ export type ReconcileJob = {
 };
 
 const WEEKS_LOOKBACK = 8;
-const MONTHS_LOOKBACK = 6;
 
 export async function findDueAdviceJobs(userId: string): Promise<ReconcileJob[]> {
   const supa = supabaseAdmin();
@@ -54,19 +53,7 @@ export async function findDueAdviceJobs(userId: string): Promise<ReconcileJob[]>
     }
   }
 
-  for (let i = 1; i <= MONTHS_LOOKBACK; i++) {
-    const mStart = now.startOf('month').minus({ months: i });
-    const mEnd = mStart.endOf('month').startOf('day');
-    const cutoff = mEnd.set({ hour: 22 });
-    if (cutoff > now) continue;
-    candidates.push({
-      adviceKind: 'monthly',
-      periodStart: mStart.toISODate()!, periodEnd: mEnd.toISODate()!,
-      timezone, userId,
-      runKey: `monthly:${mStart.toISODate()}`,
-    });
-  }
-
+  // monthly 已停用排程（與 weekly 重疊、無查看入口）；生成鏈路保留，恢復時補回 lookback 迴圈即可
   const due: ReconcileJob[] = [];
   for (const c of candidates) {
     const [adviceRow, inboxRow, cronRunRow] = await Promise.all([
