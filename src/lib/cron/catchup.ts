@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { reserveAiBudget } from '@/lib/ai-provider/budget';
 import { getAiProvider } from '@/lib/ai-provider';
 import { fetchAdviceInputData } from '@/lib/ai-provider/context-builder';
-import { ensureInboxForAdvice } from '@/lib/inbox/upsert';
+import { ensureInboxForAdvice, adviceReadyTitle } from '@/lib/inbox/upsert';
 import { trySendPushOnce } from '@/lib/cron/push';
 import { scanAdviceForDanger } from '@/lib/ai-provider/danger-words';
 
@@ -156,13 +156,13 @@ export async function reconcileAdvicePeriod(job: ReconcileJob): Promise<{ advice
     advice = upserted as { id: string; stale?: boolean };
   }
 
-  await ensureInboxForAdvice(job.adviceKind, advice.id, job.userId, job.periodStart);
+  await ensureInboxForAdvice(job.adviceKind, advice.id, job.userId, job.periodStart, job.periodEnd);
 
   await trySendPushOnce({
     userId: job.userId,
     type: `${job.adviceKind}_advice_ready` as 'weekly_advice_ready' | 'monthly_advice_ready',
     refId: `${job.adviceKind}:${job.periodStart}`,
-    title: job.adviceKind === 'weekly' ? '本週建議已生成' : '本月建議已生成',
+    title: adviceReadyTitle(job.adviceKind, job.periodStart, job.periodEnd),
     body: '點開 App 查看',
     data: { adviceId: advice.id, periodStart: job.periodStart },
   });

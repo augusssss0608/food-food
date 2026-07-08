@@ -6,6 +6,7 @@ import { PageShell } from '@/components/ui/page-shell';
 import { PageHeader } from '@/components/page-header';
 import { Card } from '@/components/ui/card';
 import { HistoryDateNav } from '@/components/history-date-nav';
+import { WeeklyAdviceSection, type WeeklyAdvice } from '@/components/weekly-advice-section';
 
 const SOURCE_LABEL = {
   preset: 'preset',
@@ -37,6 +38,17 @@ export default async function HistoryMealsPage({
   });
 
   const totalKcal = Math.round(meals.reduce((s, m) => s + (m.kcal ?? 0), 0));
+
+  // 週建議按所在週的週一（period_start，與 cron 生成口徑一致）查詢
+  const weekStartDT = dateDT.startOf('week');
+  const weekEndDT = weekStartDT.plus({ days: 6 });
+  const isCurrentWeek =
+    weekStartDT.toISODate() === DateTime.fromISO(todayDate, { zone: timezone }).startOf('week').toISODate();
+  const { data: weeklyAdviceRow } = await supa.from('advice')
+    .select('content_md, generated_at, stale')
+    .eq('kind', 'weekly').eq('period_start', weekStartDT.toISODate()!)
+    .maybeSingle();
+  const weeklyAdvice = weeklyAdviceRow as WeeklyAdvice | null;
 
   return (
     <PageShell>
@@ -119,6 +131,13 @@ export default async function HistoryMealsPage({
           </Card>
         )}
       </section>
+
+      <WeeklyAdviceSection
+        weekLabel={`${weekStartDT.toFormat('M/d')}-${weekEndDT.toFormat('M/d')}`}
+        isCurrentWeek={isCurrentWeek}
+        advice={weeklyAdvice}
+        timezone={timezone}
+      />
     </PageShell>
   );
 }
